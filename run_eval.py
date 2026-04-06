@@ -13,6 +13,7 @@ Output:
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -59,6 +60,12 @@ def parse_args():
                    help="Output JSON file (default: mma_eval_results.json)")
     p.add_argument("--enable-locomo-multimodal", action="store_true",
                    help="Enable the synthetic multimodal LoCoMo extension")
+    p.add_argument("--vision-caption-mode", choices=["synthetic", "openai"], default="synthetic",
+                   help="How to create vision_caption turns for the LoCoMo multimodal extension")
+    p.add_argument("--vision-model", type=str, default="gpt-4o-mini",
+                   help="Vision-capable OpenAI model to use when --vision-caption-mode openai")
+    p.add_argument("--vision-cache-dir", type=str, default=".cache/openai_vision_captions",
+                   help="Local cache directory for OpenAI VLM caption outputs")
     p.add_argument("--disable-cross-topic", action="store_true",
                    help="Disable the delayed-trigger cross-topic split")
     p.add_argument("--run-mm-browsecomp", action="store_true",
@@ -137,6 +144,12 @@ def main():
         args.qa_per_case = 5
         print("[quick mode] seed=0, 5 QA per case")
 
+    if args.enable_locomo_multimodal and args.vision_caption_mode == "openai" and not os.getenv("OPENAI_API_KEY"):
+        raise SystemExit(
+            "OPENAI_API_KEY is required when --vision-caption-mode openai is used "
+            "with --enable-locomo-multimodal"
+        )
+
     # Patch MAX_QA_PER_CASE at runtime
     import mma_bench_suite
     mma_bench_suite.MAX_QA_PER_CASE = args.qa_per_case
@@ -155,6 +168,10 @@ def main():
         "trigger_step": 10, "poison_rate": 0.30,
         "ocr_noise_prob_low": 0.05, "ocr_noise_prob_high": 0.25,
         "multimodal_turn_rate": 0.20,
+        "vision_caption_mode": args.vision_caption_mode,
+        "vision_model": args.vision_model,
+        "vision_cache_dir": args.vision_cache_dir,
+        "vision_max_output_tokens": 96,
         "trust_accept_threshold": 0.55, "abstain_on_low_trust": False,
         "mma_w_source": 0.5, "mma_w_decay": 0.2, "mma_w_consensus": 0.3,
         "mma_decay_half_life_steps": 50,
@@ -254,6 +271,9 @@ def main():
             "conditions": conditions,
             "device": str(device),
             "enable_locomo_multimodal": bool(args.enable_locomo_multimodal),
+            "vision_caption_mode": args.vision_caption_mode,
+            "vision_model": args.vision_model,
+            "vision_cache_dir": args.vision_cache_dir,
             "enable_cross_topic_split": not bool(args.disable_cross_topic),
             "run_mm_browsecomp": bool(args.run_mm_browsecomp),
             "mm_browsecomp_path": str(args.mm_browsecomp_path or MM_BROWSECOMP_PATH),
