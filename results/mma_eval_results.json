@@ -1,0 +1,148 @@
+{
+  "summary": {
+    "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+      "clean": {
+        "answer_consistent_rate": 0.9762,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.9762,
+        "ASR": 0.0
+      },
+      "poisoned": {
+        "answer_consistent_rate": 0.881,
+        "attack_survival_rate": 0.181,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.7215,
+        "ASR": 0.181
+      }
+    },
+    "RecursiveSummarizationConsolidation_NoConstructorGuard": {
+      "clean": {
+        "answer_consistent_rate": 0.9857,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.9857,
+        "ASR": 0.0
+      },
+      "poisoned": {
+        "answer_consistent_rate": 0.9286,
+        "attack_survival_rate": 1.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.0,
+        "ASR": 1.0
+      }
+    },
+    "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+      "clean": {
+        "answer_consistent_rate": 0.9905,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.9905,
+        "ASR": 0.0
+      },
+      "poisoned": {
+        "answer_consistent_rate": 0.9905,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.9905,
+        "ASR": 0.0
+      }
+    },
+    "MonotoneProvenanceLedger_ConservativeTrustScoring": {
+      "clean": {
+        "answer_consistent_rate": 1.0,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 1.0,
+        "ASR": 0.0
+      },
+      "poisoned": {
+        "answer_consistent_rate": 0.9429,
+        "attack_survival_rate": 1.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.0,
+        "ASR": 1.0
+      }
+    },
+    "RiskSensitiveToolActionFirewall_CorroborateOrConfirm": {
+      "clean": {
+        "answer_consistent_rate": 1.0,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 1.0,
+        "ASR": 0.0
+      },
+      "poisoned": {
+        "answer_consistent_rate": 0.9429,
+        "attack_survival_rate": 1.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.0,
+        "ASR": 1.0
+      }
+    }
+  },
+  "config": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "qa_per_case": 20,
+    "attack_types": [
+      "semantic_mimicry",
+      "constructor_launder",
+      "label_gaming"
+    ],
+    "conditions": [
+      "MMA_RetrieveTimeReliabilityScoring_Baseline",
+      "RecursiveSummarizationConsolidation_NoConstructorGuard",
+      "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation",
+      "MonotoneProvenanceLedger_ConservativeTrustScoring",
+      "RiskSensitiveToolActionFirewall_CorroborateOrConfirm"
+    ],
+    "device": "mps",
+    "runtime_sec": 11.91
+  },
+  "raw_sample_count": {
+    "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+      "clean": 630,
+      "poisoned": 630
+    },
+    "RecursiveSummarizationConsolidation_NoConstructorGuard": {
+      "clean": 630,
+      "poisoned": 630
+    },
+    "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+      "clean": 630,
+      "poisoned": 630
+    },
+    "MonotoneProvenanceLedger_ConservativeTrustScoring": {
+      "clean": 630,
+      "poisoned": 630
+    },
+    "RiskSensitiveToolActionFirewall_CorroborateOrConfirm": {
+      "clean": 630,
+      "poisoned": 630
+    }
+  }
+}
