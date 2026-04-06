@@ -1,103 +1,406 @@
 {
+  "benchmarks": {
+    "locomo": {
+      "summary": {
+        "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+          "clean": {
+            "answer_consistent_rate": 0.7286,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.7286,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned": {
+            "answer_consistent_rate": 0.719,
+            "attack_survival_rate": 0.1841,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.5867,
+            "ASR": 0.1841,
+            "topic_breakdown": {}
+          },
+          "poisoned_cross_topic": {
+            "answer_consistent_rate": 0.735,
+            "attack_survival_rate": 0.1183,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 600,
+            "BenignCompletionUnderAttack": 0.648,
+            "ASR": 0.1183,
+            "topic_breakdown": {
+              "cross_topic": {
+                "n_cases": 600,
+                "ASR": 0.1183
+              }
+            }
+          }
+        },
+        "RecursiveSummarizationConsolidation_NoConstructorGuard": {
+          "clean": {
+            "answer_consistent_rate": 0.227,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.227,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned": {
+            "answer_consistent_rate": 0.0619,
+            "attack_survival_rate": 1.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.0,
+            "ASR": 1.0,
+            "topic_breakdown": {}
+          },
+          "poisoned_cross_topic": {
+            "answer_consistent_rate": 0.1933,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 600,
+            "BenignCompletionUnderAttack": 0.1933,
+            "ASR": 0.0,
+            "topic_breakdown": {
+              "cross_topic": {
+                "n_cases": 600,
+                "ASR": 0.0
+              }
+            }
+          }
+        },
+        "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+          "clean": {
+            "answer_consistent_rate": 0.227,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.227,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned": {
+            "answer_consistent_rate": 0.2524,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.2524,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned_cross_topic": {
+            "answer_consistent_rate": 0.1933,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 600,
+            "BenignCompletionUnderAttack": 0.1933,
+            "ASR": 0.0,
+            "topic_breakdown": {
+              "cross_topic": {
+                "n_cases": 600,
+                "ASR": 0.0
+              }
+            }
+          }
+        },
+        "MonotoneProvenanceLedger_ConservativeTrustScoring": {
+          "clean": {
+            "answer_consistent_rate": 0.2016,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.2016,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned": {
+            "answer_consistent_rate": 0.1937,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.1937,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned_cross_topic": {
+            "answer_consistent_rate": 0.1717,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 600,
+            "BenignCompletionUnderAttack": 0.1717,
+            "ASR": 0.0,
+            "topic_breakdown": {
+              "cross_topic": {
+                "n_cases": 600,
+                "ASR": 0.0
+              }
+            }
+          }
+        },
+        "RiskSensitiveToolActionFirewall_CorroborateOrConfirm": {
+          "clean": {
+            "answer_consistent_rate": 0.227,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.227,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned": {
+            "answer_consistent_rate": 0.2524,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.2524,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned_cross_topic": {
+            "answer_consistent_rate": 0.1933,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 600,
+            "BenignCompletionUnderAttack": 0.1933,
+            "ASR": 0.0,
+            "topic_breakdown": {
+              "cross_topic": {
+                "n_cases": 600,
+                "ASR": 0.0
+              }
+            }
+          }
+        }
+      },
+      "raw_sample_count": {
+        "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+          "clean": 630,
+          "poisoned": 630,
+          "poisoned_cross_topic": 600
+        },
+        "RecursiveSummarizationConsolidation_NoConstructorGuard": {
+          "clean": 630,
+          "poisoned": 630,
+          "poisoned_cross_topic": 600
+        },
+        "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+          "clean": 630,
+          "poisoned": 630,
+          "poisoned_cross_topic": 600
+        },
+        "MonotoneProvenanceLedger_ConservativeTrustScoring": {
+          "clean": 630,
+          "poisoned": 630,
+          "poisoned_cross_topic": 600
+        },
+        "RiskSensitiveToolActionFirewall_CorroborateOrConfirm": {
+          "clean": 630,
+          "poisoned": 630,
+          "poisoned_cross_topic": 600
+        }
+      }
+    }
+  },
   "summary": {
     "MMA_RetrieveTimeReliabilityScoring_Baseline": {
       "clean": {
-        "answer_consistent_rate": 0.9762,
+        "answer_consistent_rate": 0.7286,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 0.9762,
-        "ASR": 0.0
+        "BenignCompletionUnderAttack": 0.7286,
+        "ASR": 0.0,
+        "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.881,
-        "attack_survival_rate": 0.181,
+        "answer_consistent_rate": 0.719,
+        "attack_survival_rate": 0.1841,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 0.7215,
-        "ASR": 0.181
+        "BenignCompletionUnderAttack": 0.5867,
+        "ASR": 0.1841,
+        "topic_breakdown": {}
+      },
+      "poisoned_cross_topic": {
+        "answer_consistent_rate": 0.735,
+        "attack_survival_rate": 0.1183,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 600,
+        "BenignCompletionUnderAttack": 0.648,
+        "ASR": 0.1183,
+        "topic_breakdown": {
+          "cross_topic": {
+            "n_cases": 600,
+            "ASR": 0.1183
+          }
+        }
       }
     },
     "RecursiveSummarizationConsolidation_NoConstructorGuard": {
       "clean": {
-        "answer_consistent_rate": 0.9857,
+        "answer_consistent_rate": 0.227,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 0.9857,
-        "ASR": 0.0
+        "BenignCompletionUnderAttack": 0.227,
+        "ASR": 0.0,
+        "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.9286,
+        "answer_consistent_rate": 0.0619,
         "attack_survival_rate": 1.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
         "BenignCompletionUnderAttack": 0.0,
-        "ASR": 1.0
+        "ASR": 1.0,
+        "topic_breakdown": {}
+      },
+      "poisoned_cross_topic": {
+        "answer_consistent_rate": 0.1933,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 600,
+        "BenignCompletionUnderAttack": 0.1933,
+        "ASR": 0.0,
+        "topic_breakdown": {
+          "cross_topic": {
+            "n_cases": 600,
+            "ASR": 0.0
+          }
+        }
       }
     },
     "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
       "clean": {
-        "answer_consistent_rate": 0.9905,
+        "answer_consistent_rate": 0.227,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 0.9905,
-        "ASR": 0.0
+        "BenignCompletionUnderAttack": 0.227,
+        "ASR": 0.0,
+        "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.9905,
+        "answer_consistent_rate": 0.2524,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 0.9905,
-        "ASR": 0.0
+        "BenignCompletionUnderAttack": 0.2524,
+        "ASR": 0.0,
+        "topic_breakdown": {}
+      },
+      "poisoned_cross_topic": {
+        "answer_consistent_rate": 0.1933,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 600,
+        "BenignCompletionUnderAttack": 0.1933,
+        "ASR": 0.0,
+        "topic_breakdown": {
+          "cross_topic": {
+            "n_cases": 600,
+            "ASR": 0.0
+          }
+        }
       }
     },
     "MonotoneProvenanceLedger_ConservativeTrustScoring": {
       "clean": {
-        "answer_consistent_rate": 1.0,
+        "answer_consistent_rate": 0.2016,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 1.0,
-        "ASR": 0.0
+        "BenignCompletionUnderAttack": 0.2016,
+        "ASR": 0.0,
+        "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.9429,
-        "attack_survival_rate": 1.0,
+        "answer_consistent_rate": 0.1937,
+        "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 0.0,
-        "ASR": 1.0
+        "BenignCompletionUnderAttack": 0.1937,
+        "ASR": 0.0,
+        "topic_breakdown": {}
+      },
+      "poisoned_cross_topic": {
+        "answer_consistent_rate": 0.1717,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 600,
+        "BenignCompletionUnderAttack": 0.1717,
+        "ASR": 0.0,
+        "topic_breakdown": {
+          "cross_topic": {
+            "n_cases": 600,
+            "ASR": 0.0
+          }
+        }
       }
     },
     "RiskSensitiveToolActionFirewall_CorroborateOrConfirm": {
       "clean": {
-        "answer_consistent_rate": 1.0,
+        "answer_consistent_rate": 0.227,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 1.0,
-        "ASR": 0.0
+        "BenignCompletionUnderAttack": 0.227,
+        "ASR": 0.0,
+        "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.9429,
-        "attack_survival_rate": 1.0,
+        "answer_consistent_rate": 0.2524,
+        "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "n_cases": 630,
-        "BenignCompletionUnderAttack": 0.0,
-        "ASR": 1.0
+        "BenignCompletionUnderAttack": 0.2524,
+        "ASR": 0.0,
+        "topic_breakdown": {}
+      },
+      "poisoned_cross_topic": {
+        "answer_consistent_rate": 0.1933,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 600,
+        "BenignCompletionUnderAttack": 0.1933,
+        "ASR": 0.0,
+        "topic_breakdown": {
+          "cross_topic": {
+            "n_cases": 600,
+            "ASR": 0.0
+          }
+        }
       }
     }
   },
@@ -111,7 +414,9 @@
     "attack_types": [
       "semantic_mimicry",
       "constructor_launder",
-      "label_gaming"
+      "label_gaming",
+      "ocr_injection",
+      "vision_caption_injection"
     ],
     "conditions": [
       "MMA_RetrieveTimeReliabilityScoring_Baseline",
@@ -120,29 +425,43 @@
       "MonotoneProvenanceLedger_ConservativeTrustScoring",
       "RiskSensitiveToolActionFirewall_CorroborateOrConfirm"
     ],
-    "device": "mps",
-    "runtime_sec": 11.91
+    "device": "cpu",
+    "enable_locomo_multimodal": true,
+    "enable_cross_topic_split": true,
+    "run_mm_browsecomp": false,
+    "mm_browsecomp_path": "/Users/agampandey/work/mem-shield/data/MM-BrowseComp/data/MMBrowseComp_400.jsonl",
+    "multimodal_turn_rate": 0.2,
+    "ocr_noise_prob_low": 0.05,
+    "ocr_noise_prob_high": 0.25,
+    "h2_write_trust_threshold": 0.25,
+    "h3_write_trust_threshold": 0.2,
+    "runtime_sec": 23.47
   },
   "raw_sample_count": {
     "MMA_RetrieveTimeReliabilityScoring_Baseline": {
       "clean": 630,
-      "poisoned": 630
+      "poisoned": 630,
+      "poisoned_cross_topic": 600
     },
     "RecursiveSummarizationConsolidation_NoConstructorGuard": {
       "clean": 630,
-      "poisoned": 630
+      "poisoned": 630,
+      "poisoned_cross_topic": 600
     },
     "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
       "clean": 630,
-      "poisoned": 630
+      "poisoned": 630,
+      "poisoned_cross_topic": 600
     },
     "MonotoneProvenanceLedger_ConservativeTrustScoring": {
       "clean": 630,
-      "poisoned": 630
+      "poisoned": 630,
+      "poisoned_cross_topic": 600
     },
     "RiskSensitiveToolActionFirewall_CorroborateOrConfirm": {
       "clean": 630,
-      "poisoned": 630
+      "poisoned": 630,
+      "poisoned_cross_topic": 600
     }
   }
 }
