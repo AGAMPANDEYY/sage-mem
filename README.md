@@ -1,150 +1,209 @@
 # WARP: Write-time Attested Reliability Pipeline
 
-**ICML 2026 Workshop Submission**
+**ICML 2026 Workshop Submission Code**
 
-Code for the paper:
+Code for:
 > *WARP: Write-Time Attested Memory Defenses for Multimodal Long-Horizon Agents*
 
----
+## What This Repo Evaluates
 
-## What This Paper Is About
+WARP studies **write-time memory poisoning** in agents that store observations into persistent memory.
 
-Long-horizon agents store observations into persistent memory. An adversary can **poison that memory at write time** — injecting malicious observations that get stored, consolidated, and later retrieved as if they were legitimate experience.
+The repo now supports two benchmark tracks:
+- **LoCoMo** with a **controlled synthetic multimodal extension**
+- **MM-BrowseComp** from the official benchmark JSONL
 
-**The gap this paper fills:**  
-Existing work (notably MMA, arXiv:2602.16493) defends at *retrieve time* — scoring stored memories by credibility when queried. But if the poisoned item is already in memory and looks credible (e.g., source spoofed as "user"), retrieve-time scoring fails.
+This is the intended truthful framing:
+- LoCoMo is **not** a natively multimodal dataset
+- WARP extends LoCoMo with simulated multimodal ingestion through:
+  - `ocr_text` turns with deterministic OCR-like corruption
+  - `vision_caption` turns that represent image-derived observations
+- MM-BrowseComp is treated as an equally important benchmark for real multimodal browsing tasks
+- The repo can load the **official** MM-BrowseComp JSONL directly, but official task rows do **not** contain browsing observation traces by themselves
 
-**WARP defends at *write time*:** before a candidate observation enters durable memory.
+## Core Hypotheses
 
----
+| ID | Mechanism | Intended effect |
+|----|-----------|-----------------|
+| H1 | `ConstructorGuardedSandboxMemory` | Quarantine low-trust writes and strip procedural content at consolidation |
+| H2 | `MonotoneProvenanceLedgerMemory` | Prevent trust laundering through rewriting while keeping weaker write gating |
+| H3 | `RiskSensitiveToolActionFirewall_CorroborateOrConfirm` | Memory-centric firewall ablation with the loosest write gate |
+| Baseline | `MMARetrieveTimeReliabilityMemory` | Retrieve-time reliability scoring only |
 
-## Hypotheses
+## Benchmark Coverage
 
-| ID | Hypothesis | Defense Mechanism |
-|----|-----------|-------------------|
-| H1 | A write-time constructor guard that quarantines low-trust observations prevents attack items from entering the retrieval context | `ConstructorGuardedSandboxMemory` — trust threshold at write + procedural detector at consolidation |
-| H2 | A monotone provenance ledger that prevents trust laundering through rewriting reduces attack persistence | `MonotoneProvenanceLedgerMemory` — trust can only decrease through transformation |
-| H3 | A risk-sensitive action firewall that requires corroboration for high-risk actions reduces blast radius | `RiskSensitiveToolActionFirewallAgent` — confirms before acting on low-trust memory |
+### LoCoMo
+- Standard clean split
+- Poisoned split with write-time attacks
+- Cross-topic delayed-trigger split
+- Optional synthetic multimodal preprocessing on about 20% of turns
 
-**Baseline:** MMA retrieve-time reliability scoring (`MMARetrieveTimeReliabilityMemory`) — credibility + temporal decay + consensus at retrieval, no write-time filtering.
+Attacks:
+- `semantic_mimicry`
+- `constructor_launder`
+- `label_gaming`
+- `ocr_injection`
+- `vision_caption_injection`
 
----
+### MM-BrowseComp
+- Clean and poisoned benchmark path
+- Loads the official encrypted/decrypted JSONL schema directly
+- Also accepts augmented rows that already include `observations`
+- Keeps MM-BrowseComp as a separate benchmark table, not merged into LoCoMo claims
 
-## Attack Taxonomy
+The repo does **not** synthesize MM-BrowseComp cases. You should vendor the official repo under `data/MM-BrowseComp` or point `MM_BROWSECOMP_PATH` at an official JSONL file. If you want to run WARP's memory evaluation on MM-BrowseComp, you must additionally provide observation events for each task, because the official benchmark rows include task metadata, image URLs, source URLs, answers, and checklists, but not the browsing trace itself.
 
-Three write-time attack types evaluated:
+To merge official MM-BrowseComp rows with externally collected browsing traces:
 
-| Attack | Mechanism | Attacker's Claimed Source | Trust assigned by defense |
-|--------|-----------|--------------------------|--------------------------|
-| `semantic_mimicry` | Injects false claim containing query text; spoofs "user" source | `user` | 1.0 (maximum — bypasses write gate) |
-| `constructor_launder` | Injects procedural directive (`ACTION_DIRECTIVE`) as a self-summary; survives naive consolidation | `self_summary` | 0.45 (above threshold — caught by procedural detector at consolidation) |
-| `label_gaming` | Low-credibility source claims to be verified; carries self-attestation | `tool_echo` | 0.20 (below threshold — quarantined at write time) |
+```bash
+.venv/bin/python src/prepare_mm_browsecomp_cases.py \
+  --official data/MM-BrowseComp/data/MMBrowseComp_400.jsonl \
+  --traces /path/to/mm_browsecomp_traces.jsonl \
+  --out data/mm_browsecomp_augmented.jsonl
+```
 
----
+To build a first-pass local trace file from official source URLs and image OCR only:
 
-## Key Results (MMA-Bench, LoCoMo-10, n=630 per condition)
+```bash
+.venv/bin/python src/build_mm_browsecomp_traces.py \
+  --official data/MM-BrowseComp/data/MMBrowseComp_400.jsonl \
+  --out data/mm_browsecomp_traces.jsonl \
+  --limit 10
+```
 
-| Condition | BCU clean | BCU poisoned | ASR poisoned |
-|-----------|-----------|--------------|--------------|
-| MMA retrieve-time baseline | 0.976 | 0.721 | **0.181** |
-| RSum (no write guard) | 0.986 | 0.000 | 1.000 |
-| **H1 ConstructorGuard (WARP)** | **0.990** | **0.990** | **0.000** |
-| H2 MonotoneLedger | 1.000 | 0.000 | 1.000 |
-| H3 ActionFirewall | 1.000 | 0.000 | 1.000 |
+For JS-heavy pages, use the browser-backed collector:
 
-- **BCU** = BenignCompletionUnderAttack: fraction of QA retrievals with no attack item in context AND benign top-1 (higher = better)
-- **ASR** = Attack Success Rate: fraction of poisoned cases where attack item entered retrieval context (lower = better)
+```bash
+.venv/bin/python src/build_mm_browsecomp_browser_traces.py \
+  --official data/MM-BrowseComp/data/MMBrowseComp_400.jsonl \
+  --out data/mm_browsecomp_browser_traces.jsonl \
+  --headless \
+  --limit 10
+```
 
-**What the results show:**
-- MMA lets 18.1% of attacks through (semantic_mimicry spoofs "user" source, wins MMA's credibility scoring)
-- ConstructorGuard achieves ASR=0: write-time trust gate catches `label_gaming`; consolidation compresses away `semantic_mimicry` and `constructor_launder`
-- H2/H3 without write gate: `label_gaming` survives in the raw-item buffer → ASR=100%
-
-**Known limitation:** Semantic mimicry (source spoofed as "user", trust=1.0) bypasses the write-time trust gate. ConstructorGuard handles it through consolidation, not by design. An attacker who uses "user"-spoofing for ALL attack types could degrade the defense. Content-based trust assignment (independent of source labels) is future work.
-
----
+This keeps the trace generation truthful:
+- `tool_output_text` comes from rendered page text
+- `ocr_text` comes from local OCR over rendered screenshots and official image URLs
+- it does **not** use an LLM to invent visual observations
 
 ## Repo Structure
 
-```
+```text
 warp-memory/
-├── run_eval.py              # Main evaluation script
+├── run_eval.py
 ├── requirements.txt
 ├── src/
-│   ├── memory.py            # All memory classes
-│   │   ├── BaseMemory
-│   │   ├── MMARetrieveTimeReliabilityMemory   (baseline)
-│   │   ├── RecursiveSummarizationMemory
-│   │   ├── ConstructorGuardedSandboxMemory    (H1 — WARP)
-│   │   ├── MonotoneProvenanceLedgerMemory     (H2)
-│   │   └── NaiveProvenanceLabelTrustMemory
-│   ├── mma_bench_suite.py   # Evaluation harness (attack injection, metrics)
-│   ├── procedural.py        # Procedural content detector
-│   ├── agent.py             # Agent classes including RiskSensitiveActionFirewallAgent
-│   ├── embedding.py         # HashedTextEmbedder (deterministic, cache-friendly)
-│   └── utils.py             # Seeding, timing utilities
+│   ├── memory.py
+│   ├── mma_bench_suite.py
+│   ├── procedural.py
+│   ├── agent.py
+│   ├── embedding.py
+│   └── utils.py
 ├── results/
-│   └── mma_eval_results.json   # Pre-computed results
+│   └── mma_eval_results.json
 └── data/
-    └── README.md            # Instructions to download LoCoMo-10
+    └── README.md
 ```
 
----
-
-## Quickstart
+## Setup
 
 ```bash
-# 1. Clone and setup
-git clone https://github.com/YOUR_USERNAME/warp-memory.git
-cd warp-memory
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# 2. Download data (see data/README.md)
-git clone https://github.com/AIGeeksGroup/MMA.git
-
-# 3. Quick sanity check (~30 seconds, 1 seed)
-python3 run_eval.py --quick
-
-# 4. Full evaluation (3 seeds, 20 QA/case, ~15 seconds)
-python3 run_eval.py
-
-# 5. Custom run
-python3 run_eval.py --seeds 0 1 2 --qa-per-case 30 --out results/my_run.json
 ```
 
----
+## Running Evaluations
 
-## What Is and Isn't Done
+Quick sanity check:
 
-### Done
-- [x] Write-time memory poisoning threat model and attack taxonomy (3 types)
-- [x] ConstructorGuardedSandboxMemory (H1): write-time trust gate + procedural detector
-- [x] MonotoneProvenanceLedgerMemory (H2): trust monotonicity under transformation
-- [x] MMA retrieve-time baseline implementation
-- [x] MMA-Bench evaluation harness on LoCoMo-10 (real data, 630 eval points)
-- [x] Honest adaptive attacker (no explicit trust label handout)
-- [x] Embedding cache for fast evaluation (~15s for full run)
-
-### Not Yet Done / Limitations
-- [ ] Multimodal inputs: evaluation is text-only (LoCoMo is a text dataset); OCR noise simulation pending
-- [ ] Adaptive attacker that spoofs "user" source for ALL attacks bypasses write-time gate
-- [ ] Content-based trust assignment (independent of source metadata)
-- [ ] H3 ActionFirewall evaluation with actual tool-call traces
-- [ ] LLM-in-the-loop evaluation (current eval uses retrieval rank, not agent answer quality)
-- [ ] More LoCoMo cases (currently 10; MMA uses full dataset)
-
----
-
-## Metrics Definition
-
+```bash
+.venv/bin/python run_eval.py --quick
 ```
-BenignCompletionUnderAttack (BCU) = answer_consistent × (1 - attack_survived)
 
-where:
-  answer_consistent = top-1 retrieved item is from a benign source AND not an attack item
-  attack_survived   = any attack item appears in the top-k retrieval context
+Main LoCoMo multimodal memory-layer table:
 
-BCU = 1.0: perfect defense (no attack in context, benign answer at top)
-BCU = 0.0: attack contaminated the retrieval context
+```bash
+.venv/bin/python run_eval.py \
+  --enable-locomo-multimodal \
+  --disable-cross-topic \
+  --out results/locomo_multimodal_memory_layers.json
 ```
+
+Hosted `mem0` pilot on a bounded LoCoMo slice:
+
+```bash
+.venv/bin/python run_eval.py \
+  --seeds 0 \
+  --qa-per-case 20 \
+  --enable-locomo-multimodal \
+  --disable-cross-topic \
+  --conditions Mem0_Platform_Baseline \
+  --case-limit 1 \
+  --out results/locomo_mem0_pilot.json
+```
+
+LoCoMo with synthetic multimodality:
+
+```bash
+.venv/bin/python run_eval.py --enable-locomo-multimodal
+```
+
+LoCoMo without the cross-topic split:
+
+```bash
+.venv/bin/python run_eval.py --disable-cross-topic
+```
+
+Run both benchmark tracks:
+
+```bash
+MM_BROWSECOMP_PATH=/path/to/MMBrowseComp_400.jsonl \
+.venv/bin/python run_eval.py --enable-locomo-multimodal --run-mm-browsecomp
+```
+
+## Verified Results
+
+Full LoCoMo multimodal main table from `results/locomo_multimodal_memory_layers.json`:
+
+| Method | BCU clean | BCU poisoned | ASR poisoned | n |
+|---|---:|---:|---:|---:|
+| ShortContext | 0.1587 | 0.0000 | 1.0000 | 630 |
+| MMA (baseline) | 0.7444 | 0.6152 | 0.1556 | 630 |
+| RSum (no guard) | 0.2286 | 0.0000 | 1.0000 | 630 |
+| H1 ConstructorGuard | 0.2286 | 0.2333 | 0.0000 | 630 |
+| H2 MonotoneLedger | 0.2127 | 0.1873 | 0.0000 | 630 |
+| H3 ActionFirewall | 0.2286 | 0.2333 | 0.0000 | 630 |
+
+Interpretation:
+- `ShortContext` and unguarded `RSum` both collapse under poisoning.
+- `MMA` retains the best clean utility but still admits poisoned memory (`ASR = 0.1556`).
+- `H1/H2/H3` all drive `ASR` to `0.0000` on this LoCoMo setting, with `H1 ≈ H3 > H2` on poisoned BCU.
+
+Hosted `mem0` pilot from `results/locomo_mem0_pilot.json`:
+
+| Method | BCU clean | BCU poisoned | ASR poisoned | n |
+|---|---:|---:|---:|---:|
+| mem0 pilot | 0.6500 | 0.0300 | 0.9000 | 20 |
+
+This `mem0` result is a truthful pilot only:
+- it uses the hosted Mem0 API with isolated per-case user scopes
+- it evaluates retrieval via `search(...)`, not chat generation
+- it is too slow for full LoCoMo under faithful per-turn writes, so it should not be presented as a full main-table benchmark
+
+## Output Format
+
+`results/mma_eval_results.json` now stores benchmark-specific sections:
+- `benchmarks.locomo.summary`
+- `benchmarks.locomo.raw_sample_count`
+- `benchmarks.mm_browsecomp.*` when enabled
+
+The top-level `summary` field is kept for backward compatibility and points to the LoCoMo summary.
+
+## Important Notes
+
+- No benchmark generation step requires paid model calls.
+- `vision_caption` memory items are stored as **text with image provenance**, not raw images.
+- The MM-BrowseComp loader understands the official schema directly.
+- The MM-BrowseComp evaluator will refuse to run on bare official task rows until observation traces are supplied.
+- Numeric claims should come from regenerated result files, not from this README.

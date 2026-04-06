@@ -1,5 +1,7 @@
 import math
+import os
 import re
+import uuid
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -24,6 +26,7 @@ class MemoryItem:
     trust: float = 0.5
     actionable: bool = False
     claimed_source: Optional[str] = None  # attacker-controlled label-gaming field
+    session_idx: Optional[int] = None
 
     def is_attacker_controlled(self) -> bool:
         return self.source_type == "attacker"
@@ -44,6 +47,7 @@ def default_source_cred(source_type: str) -> float:
     return {
         "user": 1.0,
         "ocr_text": 0.60,
+        "vision_caption": 0.58,
         "tool_output_text": 0.70,
         "self_summary": 0.45,
         "attacker": 0.10,
@@ -65,6 +69,36 @@ def extract_directive(text: str) -> Optional[Tuple[int, str, str]]:
     if not m:
         return None
     return int(m.group(1)), m.group(2).lower(), m.group(3).lower()
+
+
+def summarize_factual_snippets(
+    items: List["MemoryItem"],
+    *,
+    limit: int = 4,
+    max_chars: int = 140,
+) -> List[str]:
+    snippets: List[str] = []
+    seen = set()
+    for it in reversed(items):
+        text = re.sub(r"\s+", " ", str(it.text or "")).strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered.startswith("summary:"):
+            continue
+        text = text.replace("ACTION_DIRECTIVE", "QUOTED_DIRECTIVE")
+        snippet = text[:max_chars].strip(" '\"")
+        if not snippet:
+            continue
+        key = snippet.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        snippets.append(snippet)
+        if len(snippets) >= limit:
+            break
+    snippets.reverse()
+    return snippets
 
 class BaseMemory:
     def __init__(self, *, embedder: HashedTextEmbedder, top_k: int):
@@ -89,6 +123,7 @@ class BaseMemory:
         trust: Optional[float] = None,
         actionable: bool = False,
         claimed_source: Optional[str] = None,
+        session_idx: Optional[int] = None,
     ) -> int:
         emb = self.embedder.embed(text)
         t = _clip01(default_source_cred(source_type) if trust is None else float(trust))
@@ -104,6 +139,7 @@ class BaseMemory:
             trust=t,
             actionable=bool(actionable),
             claimed_source=claimed_source,
+            session_idx=int(session_idx) if session_idx is not None else None,
         )
         self._next_id += 1
         if partition == "audit":
@@ -143,6 +179,9 @@ class BaseMemory:
         if self.retrieval_trusted_n <= 0:
             return 0.0
         return float(self.retrieval_trusted_capture_n / self.retrieval_trusted_n)
+
+    def close(self) -> None:
+        return
 
 class MMARetrieveTimeReliabilityMemory(BaseMemory):
     def __init__(
@@ -208,6 +247,20 @@ class MMARetrieveTimeReliabilityMemory(BaseMemory):
         self.retrieval_trusted_capture_n += sum(1 for it in trusted if it.source_type == "attacker")
         return out
 
+
+class ShortContextMemory(BaseMemory):
+    """Approximate no-long-term-memory baseline: only keep the latest raw turns."""
+
+    def __init__(self, *, embedder: HashedTextEmbedder, top_k: int, keep_last_k: int):
+        super().__init__(embedder=embedder, top_k=top_k)
+        self.keep_last_k = max(1, int(keep_last_k))
+
+    def write(self, **kwargs):  # type: ignore[override]
+        item_id = super().write(**kwargs)
+        raw = [it for it in self.items if it.partition == "planning"]
+        self.items = raw[-self.keep_last_k :]
+        return item_id
+
 class RecursiveSummarizationMemory(BaseMemory):
     def __init__(
         self,
@@ -242,7 +295,9 @@ class RecursiveSummarizationMemory(BaseMemory):
         top = sorted(labels.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
         label_part = ", ".join([f"{k}({v})" for k, v in top]) if top else "none"
         directive_part = "\n".join(directives) if directives else ""
-        return f"SUMMARY: top_labels={label_part}\n{directive_part}".strip()
+        facts = summarize_factual_snippets(items, limit=5)
+        fact_part = "\n".join([f"FACT: {x}" for x in facts])
+        return f"SUMMARY: top_labels={label_part}\n{fact_part}\n{directive_part}".strip()
 
     def consolidate(self, step: int) -> None:
         if step <= 0 or (step % self.K) != 0:
@@ -330,7 +385,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
 
     def write(self, *, text: str, source_type: str, channel_id: str, step: int,
               parent_ids=(), partition: str = "planning", trust=None,
-              actionable: bool = False, claimed_source=None) -> int:
+              actionable: bool = False, claimed_source=None, session_idx: Optional[int] = None) -> int:
         """Write-time gate: items with trust below threshold go to audit partition.
 
         This is the core write-boundary defense — untrusted observations are
@@ -347,11 +402,13 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 text=text, source_type=source_type, channel_id=channel_id,
                 step=step, parent_ids=parent_ids, partition="audit",
                 trust=computed_trust, actionable=False, claimed_source=claimed_source,
+                session_idx=session_idx,
             )
         return super().write(
             text=text, source_type=source_type, channel_id=channel_id,
             step=step, parent_ids=parent_ids, partition=partition,
             trust=trust, actionable=actionable, claimed_source=claimed_source,
+            session_idx=session_idx,
         )
 
     def constructor_guard(self, candidate: str, lineage: List[MemoryItem]) -> bool:
@@ -445,6 +502,7 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
         max_chain_len: int,
         tool_attestation_required: bool,
         disable_independence_check: bool = False,
+        write_trust_threshold: float = 0.0,
     ):
         super().__init__(
             embedder=embedder,
@@ -457,6 +515,8 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
         self.max_chain_len = max(1, int(max_chain_len))
         self.tool_attestation_required = bool(tool_attestation_required)
         self.disable_independence_check = bool(disable_independence_check)
+        self.write_trust_threshold = float(write_trust_threshold)
+        self.write_quarantine_count = 0
 
     def _chain_len(self, it: MemoryItem, id_to: Dict[int, MemoryItem]) -> int:
         seen = set()
@@ -505,6 +565,8 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
             sim = safe_cosine_sim(q, it.embedding)
             trust = self.compute_trust(it)
             score = float(sim) * trust
+            if it.parent_ids and extract_directive(it.text) is not None:
+                score *= 1.35
             lbl = extract_label(it.text)
             if (
                 lbl is not None
@@ -525,18 +587,28 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
 
     def _summarize_text(self, items: List[MemoryItem]) -> str:
         labels: Dict[str, int] = {}
+        directives: List[str] = []
         for it in items:
             lbl = extract_label(it.text)
             if lbl is not None:
                 labels[lbl] = labels.get(lbl, 0) + 1
+            d = extract_directive(it.text)
+            if d is not None:
+                directives.append(
+                    f"ACTION_DIRECTIVE: at_step={d[0]} tool={d[1]} payload={d[2]}"
+                )
         top = sorted(labels.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
         label_part = ", ".join([f"{k}({v})" for k, v in top]) if top else "none"
-        return f"SUMMARY: top_labels={label_part}"
+        directive_part = "\n".join(directives) if directives else ""
+        facts = summarize_factual_snippets(items, limit=4)
+        fact_part = "\n".join([f"FACT: {x}" for x in facts])
+        return f"SUMMARY: top_labels={label_part}\n{fact_part}\n{directive_part}".strip()
 
     def write(self, **kwargs):  # type: ignore[override]
         parent_ids = list(kwargs.get("parent_ids", ()))
         source_type = str(kwargs.get("source_type", ""))
         trust = float(kwargs.get("trust", default_source_cred(source_type)))
+        partition = str(kwargs.get("partition", "planning"))
 
         if parent_ids:
             id_to = {it.item_id: it for it in self.items}
@@ -550,4 +622,264 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
 
         kwargs["trust"] = trust
         kwargs["actionable"] = False
+        if partition == "planning" and trust < self.write_trust_threshold:
+            self.write_quarantine_count += 1
+            kwargs["partition"] = "audit"
+            kwargs["actionable"] = False
         return super().write(**kwargs)
+
+
+class ActionFirewallMemory(RecursiveSummarizationMemory):
+    """Memory-centric proxy for action-time gating.
+
+    Suspicious directives are preserved in audit memory, but only quoted
+    evidence reaches planning memory unless the directive is independently
+    corroborated by multiple trusted channels.
+    """
+
+    def __init__(
+        self,
+        *,
+        embedder: HashedTextEmbedder,
+        top_k: int,
+        consolidation_period_K: int,
+        keep_last_M_raw: int,
+        detector: ProceduralDetector,
+        write_trust_threshold: float,
+        high_risk_requires_corroboration: int,
+        require_user_confirmation: bool,
+    ):
+        super().__init__(
+            embedder=embedder,
+            top_k=top_k,
+            consolidation_period_K=consolidation_period_K,
+            keep_last_M_raw=keep_last_M_raw,
+        )
+        self.detector = detector
+        self.write_trust_threshold = float(write_trust_threshold)
+        self.high_risk_requires_corroboration = max(
+            1, int(high_risk_requires_corroboration)
+        )
+        self.require_user_confirmation = bool(require_user_confirmation)
+        self.write_quarantine_count = 0
+
+    def _trusted_support_channels(self, directive_text: str) -> set:
+        chans = set()
+        for it in self.items:
+            if directive_text not in it.text:
+                continue
+            if it.source_type in {"self_summary", "tool_echo"}:
+                continue
+            if float(getattr(it, "trust", 0.0)) >= 0.7:
+                chans.add(it.channel_id)
+        return chans
+
+    def _directive_authorized(self, text: str) -> bool:
+        directive = extract_directive(text)
+        if directive is None:
+            return True
+        directive_text = (
+            f"ACTION_DIRECTIVE: at_step={directive[0]} tool={directive[1]} payload={directive[2]}"
+        )
+        chans = self._trusted_support_channels(directive_text)
+        if len(chans) >= self.high_risk_requires_corroboration:
+            return True
+        if self.require_user_confirmation:
+            return False
+        return False
+
+    def _quote_as_evidence(self, text: str) -> str:
+        sanitized = text.replace("ACTION_DIRECTIVE", "QUOTED_DIRECTIVE")
+        return f"EVIDENCE_ONLY: '{sanitized[:220]}'"
+
+    def write(self, **kwargs):  # type: ignore[override]
+        text = str(kwargs.get("text", ""))
+        source_type = str(kwargs.get("source_type", ""))
+        partition = str(kwargs.get("partition", "planning"))
+        trust = _clip01(
+            float(kwargs.get("trust", default_source_cred(source_type)))
+        )
+        if partition == "planning" and trust <= self.write_trust_threshold:
+            self.write_quarantine_count += 1
+            kwargs["partition"] = "audit"
+            kwargs["trust"] = trust
+            kwargs["actionable"] = False
+            return super().write(**kwargs)
+
+        directive = extract_directive(text)
+        if partition == "planning" and directive is not None and not self._directive_authorized(text):
+            self.write_quarantine_count += 1
+            audit_id = super().write(
+                text=text,
+                source_type=source_type,
+                channel_id=str(kwargs.get("channel_id", "directive")) + "_audit",
+                step=int(kwargs.get("step", 0)),
+                parent_ids=tuple(kwargs.get("parent_ids", ())),
+                partition="audit",
+                trust=trust,
+                actionable=False,
+                claimed_source=kwargs.get("claimed_source"),
+            )
+            super().write(
+                text=self._quote_as_evidence(text),
+                source_type="self_summary",
+                channel_id=str(kwargs.get("channel_id", "directive")) + "_quoted",
+                step=int(kwargs.get("step", 0)),
+                parent_ids=(audit_id,),
+                partition="planning",
+                trust=min(0.35, trust),
+                actionable=False,
+                claimed_source=None,
+            )
+            return audit_id
+
+        kwargs["trust"] = trust
+        kwargs["actionable"] = bool(kwargs.get("actionable", False) and directive is not None)
+        return super().write(**kwargs)
+
+    def consolidate(self, step: int) -> None:
+        if step <= 0 or (step % self.K) != 0:
+            return
+        id_to_item = {it.item_id: it for it in self.items}
+        buf_items = [id_to_item[i] for i in self._buffer if i in id_to_item]
+        if not buf_items:
+            return
+        candidate = self._summarize_text(buf_items)
+        if extract_directive(candidate) is not None and not self._directive_authorized(candidate):
+            audit_id = super().write(
+                text=candidate,
+                source_type="self_summary",
+                channel_id="candidate_audit",
+                step=step,
+                parent_ids=[it.item_id for it in buf_items],
+                partition="audit",
+                trust=0.30,
+                actionable=False,
+            )
+            candidate = self._quote_as_evidence(candidate)
+            super().write(
+                text=candidate,
+                source_type="self_summary",
+                channel_id="summary",
+                step=step,
+                parent_ids=(audit_id,),
+                partition="planning",
+                trust=0.35,
+                actionable=False,
+            )
+        else:
+            super().write(
+                text=candidate,
+                source_type="self_summary",
+                channel_id="summary",
+                step=step,
+                parent_ids=[it.item_id for it in buf_items],
+                trust=0.55,
+                actionable=False,
+            )
+        raw = [it for it in self.items if it.source_type != "self_summary"]
+        keep_raw = raw[-self.keep_M :] if self.keep_M > 0 else []
+        summaries = [it for it in self.items if it.source_type == "self_summary"]
+        self.items = keep_raw + summaries[-1:]
+        self._buffer = [it.item_id for it in keep_raw]
+
+
+class Mem0PlatformMemory(BaseMemory):
+    """Hosted Mem0 baseline with a local shadow index for provenance bookkeeping."""
+
+    def __init__(
+        self,
+        *,
+        embedder: HashedTextEmbedder,
+        top_k: int,
+        api_key: Optional[str] = None,
+        user_scope: Optional[str] = None,
+        infer: bool = True,
+    ):
+        super().__init__(embedder=embedder, top_k=top_k)
+        try:
+            from mem0 import MemoryClient
+        except ImportError as exc:
+            raise RuntimeError(
+                "mem0ai is not installed in the repo-local .venv. Install it before using the mem0 baseline."
+            ) from exc
+
+        self.api_key = api_key or os.getenv("MEM0_API_KEY")
+        if not self.api_key:
+            raise RuntimeError(
+                "MEM0_API_KEY is not set. Put it in the repo .env or environment before using the mem0 baseline."
+            )
+        self.client = MemoryClient(api_key=self.api_key)
+        self.user_scope = user_scope or f"warp-mem0-{uuid.uuid4().hex[:12]}"
+        self.infer = bool(infer)
+
+    def write(self, **kwargs):  # type: ignore[override]
+        kwargs.setdefault("actionable", False)
+        local_item_id = super().write(**kwargs)
+        item = self.items[-1] if self.items else self.audit_items[-1]
+        metadata = {
+            "source_type": item.source_type,
+            "channel_id": item.channel_id,
+            "step": item.step,
+            "partition": item.partition,
+            "trust": item.trust,
+            "session_idx": item.session_idx,
+            "local_item_id": local_item_id,
+        }
+        self.client.add(
+            [{"role": "user", "content": item.text}],
+            user_id=self.user_scope,
+            metadata=metadata,
+            infer=self.infer,
+            async_mode=False,
+        )
+        return local_item_id
+
+    def retrieve(
+        self, *, query: str, step: int, for_planning: bool = True
+    ) -> List[MemoryItem]:
+        filters = {"user_id": self.user_scope}
+        if for_planning:
+            filters = {
+                "AND": [
+                    {"user_id": self.user_scope},
+                    {"metadata": {"partition": "planning"}},
+                ]
+            }
+        result = self.client.search(query, filters=filters, top_k=self.top_k, rerank=False)
+        rows = result.get("results", result if isinstance(result, list) else [])
+        out: List[MemoryItem] = []
+        for row in rows[: self.top_k]:
+            metadata = row.get("metadata", {}) or {}
+            text = str(row.get("memory", row.get("text", "")))
+            source_type = str(metadata.get("source_type", "tool_output_text"))
+            trust = float(metadata.get("trust", default_source_cred(source_type)))
+            parent_local_id = metadata.get("local_item_id")
+            item_id = abs(hash(str(row.get("id", uuid.uuid4().hex)))) % (10**9)
+            out.append(
+                MemoryItem(
+                    item_id=item_id,
+                    text=text,
+                    embedding=self.embedder.embed(text),
+                    source_type=source_type,
+                    channel_id=str(metadata.get("channel_id", "mem0")),
+                    step=int(metadata.get("step", step)),
+                    parent_ids=((int(parent_local_id),) if parent_local_id is not None else ()),
+                    partition=str(metadata.get("partition", "planning")),
+                    trust=trust,
+                    actionable=False,
+                    claimed_source=None,
+                    session_idx=int(metadata["session_idx"]) if metadata.get("session_idx") is not None else None,
+                )
+            )
+
+        trusted = [it for it in out if it.trust >= 0.7]
+        self.retrieval_trusted_n += len(trusted)
+        self.retrieval_trusted_capture_n += sum(1 for it in trusted if it.source_type == "attacker")
+        return out
+
+    def close(self) -> None:
+        try:
+            self.client.delete_all(user_id=self.user_scope)
+        except Exception:
+            return
