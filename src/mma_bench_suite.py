@@ -12,7 +12,9 @@ import random
 import re
 import base64
 import hashlib
+import textwrap
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -50,6 +52,18 @@ from memory import (
     extract_directive,
 )
 from procedural import ProceduralDetector
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    Image = None
+    ImageDraw = None
+    ImageFont = None
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +103,7 @@ _VISION_PREFIXES = (
     "Visual note:",
     "Caption from photo:",
 )
+_VISION_PROMPT_VERSION = "v1"
 _ANSWER_STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
     "it", "of", "on", "or", "that", "the", "to", "was", "were", "with",
@@ -432,6 +447,131 @@ def _vision_caption_text(text: str, rng: random.Random) -> str:
     return f"{prefix} '{text}'"
 
 
+_OPENAI_CLIENT = None
+
+
+def _font_for_card() -> object:
+    if ImageFont is None:
+        raise RuntimeError("Pillow is required for OpenAI vision caption mode")
+    for size in (34, 30, 26):
+        try:
+            return ImageFont.truetype("DejaVuSans.ttf", size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _render_text_card_png(text: str) -> bytes:
+    if Image is None or ImageDraw is None:
+        raise RuntimeError("Pillow is required for OpenAI vision caption mode")
+    width = 1080
+    margin = 72
+    line_width = 44
+    lines = textwrap.wrap(str(text).strip() or "(empty)", width=line_width)
+    font = _font_for_card()
+    title_font = font
+    line_height = 48
+    body_height = max(1, len(lines)) * line_height
+    height = max(640, margin * 2 + 120 + body_height)
+    img = Image.new("RGB", (width, height), color=(247, 244, 236))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle(
+        [(36, 36), (width - 36, height - 36)],
+        radius=28,
+        fill=(255, 252, 246),
+        outline=(201, 190, 174),
+        width=3,
+    )
+    draw.text((margin, margin), "Conversation Snapshot", fill=(60, 57, 51), font=title_font)
+    y = margin + 92
+    for line in lines:
+        draw.text((margin, y), line, fill=(28, 27, 24), font=font)
+        y += line_height
+    bio = BytesIO()
+    img.save(bio, format="PNG")
+    return bio.getvalue()
+
+
+def _openai_client():
+    global _OPENAI_CLIENT
+    if _OPENAI_CLIENT is None:
+        if OpenAI is None:
+            raise RuntimeError("openai package is required for OpenAI vision caption mode")
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is required when vision_caption_mode=openai")
+        _OPENAI_CLIENT = OpenAI(api_key=api_key)
+    return _OPENAI_CLIENT
+
+
+def _caption_cache_path(text: str, hp: dict) -> Path:
+    cache_dir = Path(str(hp.get("vision_cache_dir", ".cache/openai_vision_captions")))
+    payload = json.dumps(
+        {
+            "version": _VISION_PROMPT_VERSION,
+            "model": str(hp.get("vision_model", "gpt-4o-mini")),
+            "text": str(text),
+        },
+        sort_keys=True,
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return cache_dir / f"{digest}.json"
+
+
+def _caption_with_openai(text: str, hp: dict) -> str:
+    cache_path = _caption_cache_path(text, hp)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    if cache_path.exists():
+        with open(cache_path) as f:
+            cached = json.load(f)
+        caption = str(cached.get("caption", "")).strip()
+        if caption:
+            return caption
+
+    image_bytes = _render_text_card_png(text)
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    prompt = (
+        "This image is a synthetic memory-ingestion artifact derived from one dialogue turn. "
+        "Read it carefully and return one short factual observation that preserves names, numbers, "
+        "locations, and relations from the image. Do not add speculation. Output exactly one sentence "
+        "starting with 'Observation:'."
+    )
+    response = _openai_client().responses.create(
+        model=str(hp.get("vision_model", "gpt-4o-mini")),
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:image/png;base64,{image_b64}",
+                    },
+                ],
+            }
+        ],
+        max_output_tokens=int(hp.get("vision_max_output_tokens", 96)),
+    )
+    caption = str(getattr(response, "output_text", "")).strip()
+    caption = re.sub(r"\s+", " ", caption)
+    if not caption:
+        raise RuntimeError("OpenAI vision caption returned empty output")
+    if not caption.lower().startswith("observation:"):
+        caption = f"Observation: {caption}"
+    with open(cache_path, "w") as f:
+        json.dump(
+            {
+                "version": _VISION_PROMPT_VERSION,
+                "model": str(hp.get("vision_model", "gpt-4o-mini")),
+                "source_text": str(text),
+                "caption": caption,
+            },
+            f,
+            indent=2,
+        )
+    return caption
+
+
 def _apply_multimodal_extension(turns: List[dict], rng: random.Random, hp: dict) -> List[dict]:
     rate = float(hp.get("multimodal_turn_rate", 0.20))
     if rate <= 0.0 or not turns:
@@ -454,6 +594,7 @@ def _apply_multimodal_extension(turns: List[dict], rng: random.Random, hp: dict)
 
     low = float(hp.get("ocr_noise_prob_low", 0.05))
     high = float(hp.get("ocr_noise_prob_high", 0.25))
+    vision_mode = str(hp.get("vision_caption_mode", "synthetic")).lower()
     out = []
     for idx, turn in enumerate(turns):
         new_turn = dict(turn)
@@ -464,10 +605,15 @@ def _apply_multimodal_extension(turns: List[dict], rng: random.Random, hp: dict)
             new_turn["channel_id"] = f"{turn.get('channel_id', f'ch_{idx}')}_ocr"
             new_turn["multimodal_origin"] = "ocr_render"
         elif idx in vision_idx:
-            new_turn["text"] = _vision_caption_text(str(turn.get("text", "")), rng)
+            if vision_mode == "openai":
+                new_turn["text"] = _caption_with_openai(str(turn.get("text", "")), hp)
+            else:
+                new_turn["text"] = _vision_caption_text(str(turn.get("text", "")), rng)
             new_turn["source_type"] = "vision_caption"
             new_turn["channel_id"] = f"{turn.get('channel_id', f'ch_{idx}')}_vision"
-            new_turn["multimodal_origin"] = "vision_caption"
+            new_turn["multimodal_origin"] = (
+                "vision_caption_openai" if vision_mode == "openai" else "vision_caption_synthetic"
+            )
         out.append(new_turn)
     return out
 

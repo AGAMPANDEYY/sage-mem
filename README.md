@@ -149,6 +149,29 @@ LoCoMo with synthetic multimodality:
 .venv/bin/python run_eval.py --enable-locomo-multimodal
 ```
 
+LoCoMo with OCR ingestion plus real OpenAI VLM-backed `vision_caption` inference:
+
+```bash
+OPENAI_API_KEY=your_key_here .venv/bin/python run_eval.py \
+  --enable-locomo-multimodal \
+  --vision-caption-mode openai \
+  --vision-model gpt-4o-mini \
+  --out results/locomo_multimodal_openai_vision.json
+```
+
+Small smoke run before the full benchmark:
+
+```bash
+OPENAI_API_KEY=your_key_here .venv/bin/python run_eval.py \
+  --quick \
+  --case-limit 1 \
+  --enable-locomo-multimodal \
+  --vision-caption-mode openai \
+  --vision-model gpt-4o-mini \
+  --disable-cross-topic \
+  --out results/locomo_multimodal_openai_vision_smoke.json
+```
+
 LoCoMo without the cross-topic split:
 
 ```bash
@@ -176,7 +199,7 @@ Full LoCoMo multimodal main table from `results/locomo_multimodal_memory_layers.
 | H3 ActionFirewall | 0.2286 | 0.2333 | 0.0000 | 630 |
 
 Interpretation:
-- `ShortContext` and unguarded `RSum` both collapse under poisoning.
+- `ShortContext` (a recency-only control with no durable long-term memory) and unguarded `RSum` both collapse under poisoning.
 - `MMA` retains the best clean utility but still admits poisoned memory (`ASR = 0.1556`).
 - `H1/H2/H3` all drive `ASR` to `0.0000` on this LoCoMo setting, with `H1 ≈ H3 > H2` on poisoned BCU.
 
