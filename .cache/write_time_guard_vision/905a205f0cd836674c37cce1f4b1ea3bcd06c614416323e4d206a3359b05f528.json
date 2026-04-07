@@ -1,0 +1,7 @@
+{
+  "image_url": "https://raw.githubusercontent.com/MMBrowseComp/MM-BrowseComp/refs/heads/main/MMBC_images/309.png",
+  "question_context": "The person in the photo was once commended. In the government gazette announcing this commendation, it was stated that a plaque was awarded to him. May I ask, who are the two individuals who signed this government gazette?",
+  "text": "The image depicts a man dressed in a military uniform with a decorative hat featuring a tall plume. He has various medals and orders displayed on his uniform, indicating a high rank or commendation.\n\n1. **Attire**: The individual is wearing a formal military uniform adorned with epaulettes and multiple medals.\n2. **Medals**: Several medals are visible on his chest, but no names or titles are provided.\n3. **Expression and Pose**: The individual has a serious expression and is posed with one hand holding what appears to be a flower or decorative item.\n4. **Historical Context**: The image appears to be black and white, suggesting it may be from a historical period, potentially late 19th or early 20th century.\n\nNo specific information is available regarding the names of the individuals who signed the government gazette based on this image alone.",
+  "backend": "openai",
+  "model": "gpt-4o-mini"
+}

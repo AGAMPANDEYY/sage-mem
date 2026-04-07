@@ -1,0 +1,147 @@
+{
+  "benchmarks": {
+    "locomo": {
+      "summary": {
+        "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+          "clean": {
+            "answer_consistent_rate": 0.7397,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.7397,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned": {
+            "answer_consistent_rate": 0.746,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.746,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          }
+        },
+        "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+          "clean": {
+            "answer_consistent_rate": 0.2317,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.2317,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          },
+          "poisoned": {
+            "answer_consistent_rate": 0.2286,
+            "attack_survival_rate": 0.0,
+            "answered_rate": 1.0,
+            "trust_escalation_per_case": 0.0,
+            "n_cases": 630,
+            "BenignCompletionUnderAttack": 0.2286,
+            "ASR": 0.0,
+            "topic_breakdown": {}
+          }
+        }
+      },
+      "raw_sample_count": {
+        "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+          "clean": 630,
+          "poisoned": 630
+        },
+        "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+          "clean": 630,
+          "poisoned": 630
+        }
+      }
+    }
+  },
+  "summary": {
+    "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+      "clean": {
+        "answer_consistent_rate": 0.7397,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.7397,
+        "ASR": 0.0,
+        "topic_breakdown": {}
+      },
+      "poisoned": {
+        "answer_consistent_rate": 0.746,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.746,
+        "ASR": 0.0,
+        "topic_breakdown": {}
+      }
+    },
+    "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+      "clean": {
+        "answer_consistent_rate": 0.2317,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.2317,
+        "ASR": 0.0,
+        "topic_breakdown": {}
+      },
+      "poisoned": {
+        "answer_consistent_rate": 0.2286,
+        "attack_survival_rate": 0.0,
+        "answered_rate": 1.0,
+        "trust_escalation_per_case": 0.0,
+        "n_cases": 630,
+        "BenignCompletionUnderAttack": 0.2286,
+        "ASR": 0.0,
+        "topic_breakdown": {}
+      }
+    }
+  },
+  "config": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "qa_per_case": 20,
+    "attack_types": [
+      "label_gaming"
+    ],
+    "conditions": [
+      "MMA_RetrieveTimeReliabilityScoring_Baseline",
+      "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation"
+    ],
+    "device": "cpu",
+    "enable_locomo_multimodal": true,
+    "vision_caption_mode": "synthetic",
+    "vision_model": "gpt-4o-mini",
+    "vision_cache_dir": ".cache/openai_vision_captions",
+    "enable_cross_topic_split": false,
+    "run_mm_browsecomp": false,
+    "mm_browsecomp_path": "/Users/agampandey/work/mem-shield/data/MM-BrowseComp/data/MMBrowseComp_400.jsonl",
+    "multimodal_turn_rate": 0.2,
+    "ocr_noise_prob_low": 0.05,
+    "ocr_noise_prob_high": 0.25,
+    "h2_write_trust_threshold": 0.25,
+    "h3_write_trust_threshold": 0.2,
+    "runtime_sec": 14.23
+  },
+  "raw_sample_count": {
+    "MMA_RetrieveTimeReliabilityScoring_Baseline": {
+      "clean": 630,
+      "poisoned": 630
+    },
+    "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": {
+      "clean": 630,
+      "poisoned": 630
+    }
+  }
+}

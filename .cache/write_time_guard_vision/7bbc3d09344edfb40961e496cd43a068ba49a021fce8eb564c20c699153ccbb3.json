@@ -1,0 +1,7 @@
+{
+  "image_url": "https://raw.githubusercontent.com/MMBrowseComp/MM-BrowseComp/refs/heads/main/MMBC_images/310.png",
+  "question_context": "At the end of April 2025, to the right of where this person is currently standing in the game, a red object has been removed compared to a month ago. What was that object?",
+  "text": "The image depicts a scene from a video game. Here are the factual observations:\n\n1. **Location Description**: The scene is set in a narrow street with buildings on either side, typical of a European-style setup.\n2. **Decorative Elements**: There are string lights hanging above the passageway.\n3. **Jersey Numbers**: There is no visible jersey number.\n4. **Barrels**: There are stacked wooden barrels on the left side of the image.\n5. **Wall Art**: A poster on the wall features a banana and the word \u201cBANANA\u201d below it.\n6. **Map Overlay**: On the left, a circular map is displayed, indicating the player's current location, with \"Banana\" identified as part of the map.\n7. **Scoreboard**: At the top center, there is a digital scoreboard displaying 0:00 for the timer and 0-0 for the score.\n8. **Game Weapons**: The character appears to be holding a weapon, specifically an assault rifle.\n\nNo specific red object is identifiable or described in the image, so it is not possible to determine what red object was removed.",
+  "backend": "openai",
+  "model": "gpt-4o-mini"
+}

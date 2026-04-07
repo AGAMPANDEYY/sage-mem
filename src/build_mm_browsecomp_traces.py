@@ -48,7 +48,7 @@ def _run(cmd: List[str], timeout_s: int) -> subprocess.CompletedProcess:
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=False,  # binary — callers decode with errors="replace"
         timeout=timeout_s,
     )
 
@@ -60,15 +60,16 @@ def _fetch_url_text(url: str, timeout_s: int, max_chars: int) -> Optional[str]:
             "-L",
             "--silent",
             "--show-error",
+            "--compressed",
             "--max-time",
             str(timeout_s),
             url,
         ],
         timeout_s=timeout_s + 2,
     )
-    if proc.returncode != 0 or not proc.stdout.strip():
+    if proc.returncode != 0 or not proc.stdout or not proc.stdout.strip():
         return None
-    html = proc.stdout
+    html = proc.stdout.decode("utf-8", errors="replace")
     title_match = _TITLE_RE.search(html)
     title = unescape(title_match.group(1)).strip() if title_match else ""
     body = _SCRIPT_RE.sub(" ", html)
