@@ -1892,7 +1892,7 @@ def run_case(
         for it in list(getattr(mem, "items", []))
         if _is_corrupted_derived_item(it, attack_channel_ids, attack_item_ids, id_to_item)
     )
-    benign_sources = {"user", "tool_output_text", "ocr_text", "vision_caption", "self_summary", "tool_echo"}
+    benign_sources = {"user", "tool_output_text", "ocr_text", "vision_caption", "self_summary", "tool_echo", "protected_fact"}
     evals = _filtered_evals_for_split(case, split, attack_session_cutoff)
     if not evals:
         return []

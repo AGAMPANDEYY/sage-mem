@@ -199,6 +199,7 @@ _DEFAULT_SOURCE_CRED = {
     "self_summary": 0.45,
     "attacker": 0.10,
     "tool_echo": 0.20,
+    "protected_fact": 0.88,  # extracted from trusted sources, never consolidated
 }
 
 def default_source_cred(source_type: str, cfg=None) -> float:
@@ -230,6 +231,99 @@ def extract_directive(text: str) -> Optional[Tuple[int, str, str]]:
     if not m:
         return None
     return int(m.group(1)), m.group(2).lower(), m.group(3).lower()
+
+
+# ── Fact extraction regexes ──────────────────────────────────────────────────
+_DATE_RE = re.compile(
+    r"\b(\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    r"(?:\s+\d{2,4})?|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
+    r"|(?:mon|tue|wed|thu|fri|sat|sun)\w*"
+    r"|\d{1,2}:\d{2}\s*(?:am|pm))\b",
+    re.IGNORECASE,
+)
+_NAME_RE = re.compile(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b")
+_NUMBER_RE = re.compile(r"\b(\d{1,5})\b")
+
+_TRUSTED_SOURCES = {"user", "tool_output_text", "ocr_text"}
+
+def extract_key_facts(items: List["MemoryItem"]) -> List[dict]:
+    """
+    Extract key facts (dates, names, numbers) from trusted memory items.
+    Returns list of dicts with keys: fact_type, value, source_text, source_type
+    Only extracts from trusted sources — never from attacker-controlled turns.
+    """
+    facts: List[dict] = []
+    seen_values: set = set()
+
+    for it in items:
+        # Only extract facts from strictly trusted sources
+        # Must be in trusted set AND have actual trust score >= 0.60
+        # This blocks: self_summary (0.45), tool_echo (0.20), attacker (0.10)
+        if it.source_type not in _TRUSTED_SOURCES:
+            continue
+        if it.trust < 0.60:
+            continue
+        # Never extract from attacker-controlled or quarantined items
+        if it.partition != "planning":
+            continue
+
+        text = re.sub(r"\s+", " ", str(it.text or "")).strip()
+        if not text or text.lower().startswith("summary:"):
+            continue
+
+        # Extract dates
+        for m in _DATE_RE.finditer(text):
+            val = m.group(0).strip()
+            key = ("date", val.lower())
+            if key not in seen_values:
+                seen_values.add(key)
+                facts.append({
+                    "fact_type": "date",
+                    "value": val,
+                    "source_text": text[:120],
+                    "source_type": it.source_type,
+                    "parent_id": it.item_id,
+                })
+
+        # Extract proper names (capitalized, 3+ chars)
+        for m in _NAME_RE.finditer(text):
+            val = m.group(1).strip()
+            # Skip common sentence starters and stopwords
+            if val.lower() in {"the", "this", "that", "there", "their",
+                                "they", "what", "when", "where", "who",
+                                "how", "hey", "wow", "glad", "yeah",
+                                "going", "gonna", "thanks", "thank"}:
+                continue
+            key = ("name", val.lower())
+            if key not in seen_values:
+                seen_values.add(key)
+                facts.append({
+                    "fact_type": "name",
+                    "value": val,
+                    "source_text": text[:120],
+                    "source_type": it.source_type,
+                    "parent_id": it.item_id,
+                })
+
+        # Extract numbers (1-4 digits, meaningful range)
+        for m in _NUMBER_RE.finditer(text):
+            val = m.group(1)
+            num = int(val)
+            if num < 2 or num > 9999:
+                continue
+            key = ("number", val)
+            if key not in seen_values:
+                seen_values.add(key)
+                facts.append({
+                    "fact_type": "number",
+                    "value": val,
+                    "source_text": text[:120],
+                    "source_type": it.source_type,
+                    "parent_id": it.item_id,
+                })
+
+    return facts
 
 
 def summarize_factual_snippets(
@@ -567,6 +661,44 @@ class RecursiveSummarizationMemory(BaseMemory):
         buf_items = [id_to_item[i] for i in self._buffer if i in id_to_item]
         if not buf_items:
             return
+
+        # ── Fact Preservation: extract key facts BEFORE compression ──────────
+        # Extract dates, names, numbers from trusted items in the buffer.
+        # Store each as a protected_fact item that is NEVER put in _buffer,
+        # so it will never be consolidated away. This preserves specific
+        # factual details (dates, names, numbers) that would otherwise be
+        # lost during summarization — recovering BCU clean without sacrificing
+        # attack defense (only trusted sources generate protected facts).
+        facts = extract_key_facts(buf_items)
+        protected_ids = []
+        seen_fact_values = {
+            it.fact_value
+            for it in self.items
+            if it.source_type == "protected_fact" and it.fact_value
+        }
+        for fact in facts:
+            if fact["value"] in seen_fact_values:
+                continue  # already protected, skip duplicate
+            seen_fact_values.add(fact["value"])
+            fact_text = (
+                f"PROTECTED_FACT[{fact['fact_type']}]: {fact['value']} "
+                f"— from: {fact['source_text'][:80]}"
+            )
+            # Write directly to BaseMemory to bypass _buffer append
+            fact_id = super(RecursiveSummarizationMemory, self).write(
+                text=fact_text,
+                source_type="protected_fact",
+                channel_id=f"fact_{fact['fact_type']}",
+                step=step,
+                parent_ids=(fact["parent_id"],),
+                trust=0.88,
+                actionable=False,
+                fact_key=fact["fact_type"],
+                fact_value=fact["value"],
+            )
+            protected_ids.append(fact_id)
+        # ─────────────────────────────────────────────────────────────────────
+
         text = self._summarize_text(buf_items)
         self.write(
             text=text,
@@ -577,10 +709,12 @@ class RecursiveSummarizationMemory(BaseMemory):
             trust=0.80,
             actionable=True,
         )
-        raw = [it for it in self.items if it.source_type != "self_summary"]
+        raw = [it for it in self.items if it.source_type not in ("self_summary", "protected_fact")]
         keep_raw = raw[-self.keep_M :] if self.keep_M > 0 else []
         summaries = [it for it in self.items if it.source_type == "self_summary"]
-        self.items = keep_raw + summaries[-1:]
+        # Keep all protected facts permanently — never discard them
+        protected = [it for it in self.items if it.source_type == "protected_fact"]
+        self.items = keep_raw + summaries[-1:] + protected
         self._buffer = [it.item_id for it in keep_raw]
 
 class NaiveProvenanceLabelTrustMemory(RecursiveSummarizationMemory):
@@ -935,6 +1069,33 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             if self._cfg is not None
             else 0.70
         )
+        # ── Fact Preservation ─────────────────────────────────────────────────
+        facts = extract_key_facts(buf_items)
+        seen_fact_values = {
+            it.fact_value
+            for it in self.items
+            if it.source_type == "protected_fact" and it.fact_value
+        }
+        for fact in facts:
+            if fact["value"] in seen_fact_values:
+                continue
+            seen_fact_values.add(fact["value"])
+            fact_text = (
+                f"PROTECTED_FACT[{fact['fact_type']}]: {fact['value']} "
+                f"— from: {fact['source_text'][:80]}"
+            )
+            super(RecursiveSummarizationMemory, self).write(
+                text=fact_text,
+                source_type="protected_fact",
+                channel_id=f"fact_{fact['fact_type']}",
+                step=step,
+                parent_ids=(fact["parent_id"],),
+                trust=0.88,
+                actionable=False,
+                fact_key=fact["fact_type"],
+                fact_value=fact["value"],
+            )
+        # ─────────────────────────────────────────────────────────────────────
         self.write(
             text=candidate,
             source_type="self_summary",
@@ -944,10 +1105,11 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             trust=summary_trust,
             actionable=False,
         )
-        raw = [it for it in self.items if it.source_type != "self_summary"]
+        raw = [it for it in self.items if it.source_type not in ("self_summary", "protected_fact")]
         keep_raw = raw[-self.keep_M :] if self.keep_M > 0 else []
         summaries = [it for it in self.items if it.source_type == "self_summary"]
-        self.items = keep_raw + summaries[-1:]
+        protected = [it for it in self.items if it.source_type == "protected_fact"]
+        self.items = keep_raw + summaries[-1:] + protected
         self._buffer = [it.item_id for it in keep_raw]
 
 class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
