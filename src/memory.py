@@ -11,6 +11,18 @@ from embedding import HashedTextEmbedder
 from procedural import ProceduralDetector
 from utils import safe_cosine_sim
 
+# Optional: imported lazily to avoid hard dep when guard is disabled
+_WriteTimeGuard = None
+def _get_guard_type():
+    global _WriteTimeGuard
+    if _WriteTimeGuard is None:
+        try:
+            from guard_llm import WriteTimeGuard as _WTG
+            _WriteTimeGuard = _WTG
+        except ImportError:
+            pass
+    return _WriteTimeGuard
+
 @dataclass
 class MemoryItem:
     """A single piece of stored text with provenance and trust metadata."""
@@ -355,8 +367,7 @@ class NaiveProvenanceLabelTrustMemory(RecursiveSummarizationMemory):
         return base + "\nPROVENANCE: verified"
 
 class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
-    # Write-time trust threshold: items with trust below this are quarantined
-    # to the audit partition and excluded from planning retrieval.
+    # Default write-time trust threshold (overridable via __init__)
     WRITE_TRUST_THRESHOLD = 0.30
 
     def __init__(
@@ -370,6 +381,8 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         quarantine_on_fail: bool,
         detector: ProceduralDetector,
         rewrite_on_fail: bool = True,
+        write_trust_threshold: Optional[float] = None,
+        guard=None,  # Optional[WriteTimeGuard] — LLM-based semantic guard
     ):
         super().__init__(
             embedder=embedder,
@@ -382,6 +395,10 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         self.rewrite_on_fail = bool(rewrite_on_fail)
         self.detector = detector
         self.write_quarantine_count = 0
+        self.guard = guard  # LLM write-time guard (None → regex-only fallback)
+        # Allow per-instance threshold override (used in Pareto sweep)
+        if write_trust_threshold is not None:
+            self.WRITE_TRUST_THRESHOLD = float(write_trust_threshold)
 
     def write(self, *, text: str, source_type: str, channel_id: str, step: int,
               parent_ids=(), partition: str = "planning", trust=None,
@@ -395,17 +412,51 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         computed_trust = _clip01(
             default_source_cred(source_type) if trust is None else float(trust)
         )
-        # Route to audit if trust is too low (write-time quarantine)
-        if computed_trust < self.WRITE_TRUST_THRESHOLD and partition == "planning":
+
+        # ── LLM-based semantic guard (primary, when enabled) ──────────────────
+        # The WriteTimeGuard is a stateless "Shadow Classifier" running in a
+        # sandbox — its prompt is strictly "classify this segment", never "execute".
+        # It catches adversarial directives that evade regex (e.g. natural-language
+        # instructions, obfuscated commands, buried payloads in legitimate prose).
+        write_text = text  # may be replaced by sanitized version
+        if self.guard is not None and source_type != "user" and partition == "planning":
+            guard_result = self.guard.classify(text, source_type)
+            if guard_result.classification == "METADATA":
+                # Structural boilerplate: drop silently (don't even audit)
+                return -1
+            if guard_result.quarantine:
+                # DIRECTIVE or high-risk: route to audit with sanitized text
+                self.write_quarantine_count += 1
+                audit_text = guard_result.sanitized_text or (
+                    f"EVIDENCE_ONLY: (quarantined by LLM guard — "
+                    f"risk={guard_result.risk_score:.2f}, "
+                    f"class={guard_result.classification})"
+                )
+                return super().write(
+                    text=audit_text, source_type=source_type, channel_id=channel_id,
+                    step=step, parent_ids=parent_ids, partition="audit",
+                    trust=computed_trust, actionable=False,
+                    claimed_source=claimed_source, session_idx=session_idx,
+                )
+            # DATA: use original text (guard's extract available but raw is richer)
+            write_text = text
+
+        # ── Regex/trust fallback (always runs; catches structured benchmark attacks) ──
+        has_directive = extract_directive(write_text) is not None or bool(_LABEL_RE.search(write_text))
+        quarantine = (
+            (computed_trust < self.WRITE_TRUST_THRESHOLD and partition == "planning")
+            or (has_directive and source_type != "user" and partition == "planning")
+        )
+        if quarantine:
             self.write_quarantine_count += 1
             return super().write(
-                text=text, source_type=source_type, channel_id=channel_id,
+                text=write_text, source_type=source_type, channel_id=channel_id,
                 step=step, parent_ids=parent_ids, partition="audit",
                 trust=computed_trust, actionable=False, claimed_source=claimed_source,
                 session_idx=session_idx,
             )
         return super().write(
-            text=text, source_type=source_type, channel_id=channel_id,
+            text=write_text, source_type=source_type, channel_id=channel_id,
             step=step, parent_ids=parent_ids, partition=partition,
             trust=trust, actionable=actionable, claimed_source=claimed_source,
             session_idx=session_idx,
