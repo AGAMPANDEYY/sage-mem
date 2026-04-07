@@ -11,3 +11,8 @@ data/locomo10.json
 data/locomo/
 MMA/
 .env
+
+# Generated caches and local multimodal artifacts
+.cache/
+src/__pycache__/
+data/mm_browsecomp_pilot/
