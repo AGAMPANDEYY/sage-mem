@@ -66,6 +66,12 @@ def parse_args():
                    help="Vision-capable OpenAI model to use when --vision-caption-mode openai")
     p.add_argument("--vision-cache-dir", type=str, default=".cache/openai_vision_captions",
                    help="Local cache directory for OpenAI VLM caption outputs")
+    p.add_argument("--multimodal-adversary-mode", choices=["heuristic", "openai"], default="heuristic",
+                   help="How to generate contradictory multimodal observations for LoCoMo")
+    p.add_argument("--adversary-model", type=str, default="gpt-4o-mini",
+                   help="OpenAI model to use when --multimodal-adversary-mode openai")
+    p.add_argument("--adversary-cache-dir", type=str, default=".cache/openai_multimodal_attacks",
+                   help="Local cache directory for frozen OpenAI-generated multimodal contradictions")
     p.add_argument("--disable-cross-topic", action="store_true",
                    help="Disable the delayed-trigger cross-topic split")
     p.add_argument("--run-mm-browsecomp", action="store_true",
@@ -94,6 +100,7 @@ def print_results_table(summary: dict, *, title: str) -> None:
         "Mem0_Platform_Baseline":                                      "mem0",
         "RecursiveSummarizationConsolidation_NoConstructorGuard":        "RSum (no guard)",
         "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": "H1 ConstructorGuard",
+        "SAGEMem_SourceAttestedGuardedEpisodicMemory":                  "SAGE-Mem",
         "MonotoneProvenanceLedger_ConservativeTrustScoring":             "H2 MonotoneLedger",
         "RiskSensitiveToolActionFirewall_CorroborateOrConfirm":          "H3 ActionFirewall",
     }
@@ -149,6 +156,11 @@ def main():
             "OPENAI_API_KEY is required when --vision-caption-mode openai is used "
             "with --enable-locomo-multimodal"
         )
+    if args.enable_locomo_multimodal and args.multimodal_adversary_mode == "openai" and not os.getenv("OPENAI_API_KEY"):
+        raise SystemExit(
+            "OPENAI_API_KEY is required when --multimodal-adversary-mode openai is used "
+            "with --enable-locomo-multimodal"
+        )
 
     # Patch MAX_QA_PER_CASE at runtime
     import mma_bench_suite
@@ -172,12 +184,17 @@ def main():
         "vision_model": args.vision_model,
         "vision_cache_dir": args.vision_cache_dir,
         "vision_max_output_tokens": 96,
+        "multimodal_adversary_mode": args.multimodal_adversary_mode,
+        "adversary_model": args.adversary_model,
+        "adversary_cache_dir": args.adversary_cache_dir,
+        "adversary_max_output_tokens": 160,
         "trust_accept_threshold": 0.55, "abstain_on_low_trust": False,
         "mma_w_source": 0.5, "mma_w_decay": 0.2, "mma_w_consensus": 0.3,
         "mma_decay_half_life_steps": 50,
         "short_context_keep_last_k": 8,
         "procedural_classifier_threshold": 0.60, "quarantine_on_fail": True,
         "chain_decay": 0.85, "independence_bonus": 1.2, "max_chain_len": 5,
+        "sage_chain_decay": 0.90, "sage_write_trust_threshold": 0.25,
         "h2_write_trust_threshold": 0.25, "h3_write_trust_threshold": 0.20,
         "tool_attestation_required": True,
         "high_risk_requires_corroboration": 2, "require_user_confirmation": True,
@@ -274,6 +291,9 @@ def main():
             "vision_caption_mode": args.vision_caption_mode,
             "vision_model": args.vision_model,
             "vision_cache_dir": args.vision_cache_dir,
+            "multimodal_adversary_mode": args.multimodal_adversary_mode,
+            "adversary_model": args.adversary_model,
+            "adversary_cache_dir": args.adversary_cache_dir,
             "enable_cross_topic_split": not bool(args.disable_cross_topic),
             "run_mm_browsecomp": bool(args.run_mm_browsecomp),
             "mm_browsecomp_path": str(args.mm_browsecomp_path or MM_BROWSECOMP_PATH),
@@ -282,6 +302,8 @@ def main():
             "ocr_noise_prob_high": hp["ocr_noise_prob_high"],
             "h2_write_trust_threshold": hp["h2_write_trust_threshold"],
             "h3_write_trust_threshold": hp["h3_write_trust_threshold"],
+            "sage_chain_decay": hp["sage_chain_decay"],
+            "sage_write_trust_threshold": hp["sage_write_trust_threshold"],
             "runtime_sec": round(elapsed, 2),
         },
         "raw_sample_count": {

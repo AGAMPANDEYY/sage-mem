@@ -39,6 +39,11 @@ class MemoryItem:
     actionable: bool = False
     claimed_source: Optional[str] = None  # attacker-controlled label-gaming field
     session_idx: Optional[int] = None
+    observation_group: Optional[str] = None
+    fact_key: Optional[str] = None
+    fact_value: Optional[str] = None
+    multimodal_relation: Optional[str] = None
+    attack_family: Optional[str] = None
 
     def is_attacker_controlled(self) -> bool:
         return self.source_type == "attacker"
@@ -112,6 +117,52 @@ def summarize_factual_snippets(
     snippets.reverse()
     return snippets
 
+
+def _norm_fact_token(value: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def find_conflicting_fact(
+    items: Sequence["MemoryItem"],
+    *,
+    fact_key: Optional[str],
+    fact_value: Optional[str],
+    session_idx: Optional[int],
+) -> Optional["MemoryItem"]:
+    if not fact_key or not fact_value:
+        return None
+    target = _norm_fact_token(fact_value)
+    if not target:
+        return None
+    for it in reversed(list(items)):
+        if getattr(it, "fact_key", None) != fact_key:
+            continue
+        prior_value = _norm_fact_token(getattr(it, "fact_value", None))
+        if not prior_value or prior_value == target:
+            continue
+        if session_idx is not None and getattr(it, "session_idx", None) is not None:
+            if int(it.session_idx) != int(session_idx):
+                continue
+        return it
+    return None
+
+
+def build_conflict_evidence_text(
+    *,
+    fact_key: Optional[str],
+    trusted_item: "MemoryItem",
+    incoming_value: Optional[str],
+) -> str:
+    prior_value = str(getattr(trusted_item, "fact_value", "") or trusted_item.text[:80]).strip()
+    new_value = str(incoming_value or "").strip() or "unknown"
+    slot = str(fact_key or "memory_fact")
+    return (
+        "EVIDENCE_CONFLICT: conflicting multimodal observations for "
+        f"{slot}. Earlier evidence suggests '{prior_value}', but a newer "
+        f"lower-trust observation suggests '{new_value}'. Preserve for audit; "
+        "do not treat either contradiction as settled policy."
+    )
+
 class BaseMemory:
     def __init__(self, *, embedder: HashedTextEmbedder, top_k: int):
         self.embedder = embedder
@@ -136,6 +187,11 @@ class BaseMemory:
         actionable: bool = False,
         claimed_source: Optional[str] = None,
         session_idx: Optional[int] = None,
+        observation_group: Optional[str] = None,
+        fact_key: Optional[str] = None,
+        fact_value: Optional[str] = None,
+        multimodal_relation: Optional[str] = None,
+        attack_family: Optional[str] = None,
     ) -> int:
         emb = self.embedder.embed(text)
         t = _clip01(default_source_cred(source_type) if trust is None else float(trust))
@@ -152,6 +208,11 @@ class BaseMemory:
             actionable=bool(actionable),
             claimed_source=claimed_source,
             session_idx=int(session_idx) if session_idx is not None else None,
+            observation_group=str(observation_group) if observation_group is not None else None,
+            fact_key=str(fact_key) if fact_key is not None else None,
+            fact_value=str(fact_value) if fact_value is not None else None,
+            multimodal_relation=str(multimodal_relation) if multimodal_relation is not None else None,
+            attack_family=str(attack_family) if attack_family is not None else None,
         )
         self._next_id += 1
         if partition == "audit":
@@ -396,13 +457,30 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         self.detector = detector
         self.write_quarantine_count = 0
         self.guard = guard  # LLM write-time guard (None → regex-only fallback)
+        self.conflict_quarantine_count = 0
         # Allow per-instance threshold override (used in Pareto sweep)
         if write_trust_threshold is not None:
             self.WRITE_TRUST_THRESHOLD = float(write_trust_threshold)
 
-    def write(self, *, text: str, source_type: str, channel_id: str, step: int,
-              parent_ids=(), partition: str = "planning", trust=None,
-              actionable: bool = False, claimed_source=None, session_idx: Optional[int] = None) -> int:
+    def write(
+        self,
+        *,
+        text: str,
+        source_type: str,
+        channel_id: str,
+        step: int,
+        parent_ids=(),
+        partition: str = "planning",
+        trust=None,
+        actionable: bool = False,
+        claimed_source=None,
+        session_idx: Optional[int] = None,
+        observation_group: Optional[str] = None,
+        fact_key: Optional[str] = None,
+        fact_value: Optional[str] = None,
+        multimodal_relation: Optional[str] = None,
+        attack_family: Optional[str] = None,
+    ) -> int:
         """Write-time gate: items with trust below threshold go to audit partition.
 
         This is the core write-boundary defense — untrusted observations are
@@ -412,6 +490,55 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         computed_trust = _clip01(
             default_source_cred(source_type) if trust is None else float(trust)
         )
+
+        if partition == "planning" and source_type != "user":
+            conflicting = find_conflicting_fact(
+                self.items,
+                fact_key=fact_key,
+                fact_value=fact_value,
+                session_idx=session_idx,
+            )
+            if conflicting is not None and computed_trust <= float(getattr(conflicting, "trust", 0.0)):
+                self.conflict_quarantine_count += 1
+                audit_id = super().write(
+                    text=text,
+                    source_type=source_type,
+                    channel_id=channel_id,
+                    step=step,
+                    parent_ids=parent_ids,
+                    partition="audit",
+                    trust=computed_trust,
+                    actionable=False,
+                    claimed_source=claimed_source,
+                    session_idx=session_idx,
+                    observation_group=observation_group,
+                    fact_key=fact_key,
+                    fact_value=fact_value,
+                    multimodal_relation=multimodal_relation,
+                    attack_family=attack_family,
+                )
+                super().write(
+                    text=build_conflict_evidence_text(
+                        fact_key=fact_key,
+                        trusted_item=conflicting,
+                        incoming_value=fact_value,
+                    ),
+                    source_type="self_summary",
+                    channel_id=f"{channel_id}_conflict",
+                    step=step,
+                    parent_ids=(conflicting.item_id, audit_id),
+                    partition="planning",
+                    trust=min(0.35, computed_trust),
+                    actionable=False,
+                    claimed_source=None,
+                    session_idx=session_idx,
+                    observation_group=observation_group,
+                    fact_key=fact_key,
+                    fact_value="conflict",
+                    multimodal_relation="conflict",
+                    attack_family="conflict_evidence",
+                )
+                return audit_id
 
         # ── LLM-based semantic guard (primary, when enabled) ──────────────────
         # The WriteTimeGuard is a stateless "Shadow Classifier" running in a
@@ -437,6 +564,9 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                     step=step, parent_ids=parent_ids, partition="audit",
                     trust=computed_trust, actionable=False,
                     claimed_source=claimed_source, session_idx=session_idx,
+                    observation_group=observation_group, fact_key=fact_key,
+                    fact_value=fact_value, multimodal_relation=multimodal_relation,
+                    attack_family=attack_family,
                 )
             # DATA: use original text (guard's extract available but raw is richer)
             write_text = text
@@ -454,12 +584,18 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 step=step, parent_ids=parent_ids, partition="audit",
                 trust=computed_trust, actionable=False, claimed_source=claimed_source,
                 session_idx=session_idx,
+                observation_group=observation_group, fact_key=fact_key,
+                fact_value=fact_value, multimodal_relation=multimodal_relation,
+                attack_family=attack_family,
             )
         return super().write(
             text=write_text, source_type=source_type, channel_id=channel_id,
             step=step, parent_ids=parent_ids, partition=partition,
             trust=trust, actionable=actionable, claimed_source=claimed_source,
             session_idx=session_idx,
+            observation_group=observation_group, fact_key=fact_key,
+            fact_value=fact_value, multimodal_relation=multimodal_relation,
+            attack_family=attack_family,
         )
 
     def constructor_guard(self, candidate: str, lineage: List[MemoryItem]) -> bool:
@@ -568,6 +704,7 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
         self.disable_independence_check = bool(disable_independence_check)
         self.write_trust_threshold = float(write_trust_threshold)
         self.write_quarantine_count = 0
+        self.conflict_quarantine_count = 0
 
     def _chain_len(self, it: MemoryItem, id_to: Dict[int, MemoryItem]) -> int:
         seen = set()
@@ -673,10 +810,95 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
 
         kwargs["trust"] = trust
         kwargs["actionable"] = False
+        if kwargs.get("partition", "planning") == "planning" and source_type != "user":
+            conflicting = find_conflicting_fact(
+                self.items,
+                fact_key=kwargs.get("fact_key"),
+                fact_value=kwargs.get("fact_value"),
+                session_idx=kwargs.get("session_idx"),
+            )
+            if conflicting is not None and trust <= self.compute_trust(conflicting):
+                self.conflict_quarantine_count += 1
+                kwargs["partition"] = "audit"
+                kwargs["actionable"] = False
+                partition = "audit"
         if partition == "planning" and trust < self.write_trust_threshold:
             self.write_quarantine_count += 1
             kwargs["partition"] = "audit"
             kwargs["actionable"] = False
+        return super().write(**kwargs)
+
+
+class SAGEMemory(ConstructorGuardedSandboxMemory):
+    """SAGE-Mem: source-attested guarded episodic memory.
+
+    Final combined method:
+    - H1-style write boundary and constructor-safe consolidation
+    - monotone trust capping for derived items
+    - multimodal conflict quarantine at write time
+
+    Retrieval stays simple (similarity * stored trust) to preserve more utility
+    than the fully conservative H2 retrieval path.
+    """
+
+    def __init__(
+        self,
+        *,
+        embedder: HashedTextEmbedder,
+        top_k: int,
+        consolidation_period_K: int,
+        keep_last_M_raw: int,
+        procedural_classifier_threshold: float,
+        detector: ProceduralDetector,
+        chain_decay: float = 0.90,
+        write_trust_threshold: Optional[float] = None,
+        rewrite_on_fail: bool = True,
+        guard=None,
+    ):
+        super().__init__(
+            embedder=embedder,
+            top_k=top_k,
+            consolidation_period_K=consolidation_period_K,
+            keep_last_M_raw=keep_last_M_raw,
+            procedural_classifier_threshold=procedural_classifier_threshold,
+            quarantine_on_fail=True,
+            detector=detector,
+            rewrite_on_fail=rewrite_on_fail,
+            write_trust_threshold=write_trust_threshold,
+            guard=guard,
+        )
+        self.chain_decay = float(chain_decay)
+
+    def _derived_trust_cap(
+        self,
+        *,
+        source_type: str,
+        proposed_trust: float,
+        parent_ids: Sequence[int],
+    ) -> float:
+        trust = float(proposed_trust)
+        id_to = {it.item_id: it for it in self.items}
+        if parent_ids:
+            parents = [id_to[p] for p in parent_ids if p in id_to]
+            if parents:
+                parent_floor = min(float(getattr(p, "trust", 0.0)) for p in parents)
+                trust = min(trust, parent_floor * self.chain_decay)
+        if source_type == "self_summary":
+            trust = min(trust, 0.55)
+        if source_type == "tool_echo":
+            trust = min(trust, 0.20)
+        return _clip01(trust)
+
+    def write(self, **kwargs):  # type: ignore[override]
+        source_type = str(kwargs.get("source_type", ""))
+        base_trust = float(kwargs.get("trust", default_source_cred(source_type)))
+        parent_ids = list(kwargs.get("parent_ids", ()))
+        kwargs["trust"] = self._derived_trust_cap(
+            source_type=source_type,
+            proposed_trust=base_trust,
+            parent_ids=parent_ids,
+        )
+        kwargs["actionable"] = False
         return super().write(**kwargs)
 
 
@@ -713,6 +935,7 @@ class ActionFirewallMemory(RecursiveSummarizationMemory):
         )
         self.require_user_confirmation = bool(require_user_confirmation)
         self.write_quarantine_count = 0
+        self.conflict_quarantine_count = 0
 
     def _trusted_support_channels(self, directive_text: str) -> set:
         chans = set()
@@ -750,6 +973,52 @@ class ActionFirewallMemory(RecursiveSummarizationMemory):
         trust = _clip01(
             float(kwargs.get("trust", default_source_cred(source_type)))
         )
+        if partition == "planning" and source_type != "user":
+            conflicting = find_conflicting_fact(
+                self.items,
+                fact_key=kwargs.get("fact_key"),
+                fact_value=kwargs.get("fact_value"),
+                session_idx=kwargs.get("session_idx"),
+            )
+            if conflicting is not None and trust <= float(getattr(conflicting, "trust", 0.0)):
+                self.conflict_quarantine_count += 1
+                audit_id = super().write(
+                    text=text,
+                    source_type=source_type,
+                    channel_id=str(kwargs.get("channel_id", "conflict")) + "_audit",
+                    step=int(kwargs.get("step", 0)),
+                    parent_ids=tuple(kwargs.get("parent_ids", ())),
+                    partition="audit",
+                    trust=trust,
+                    actionable=False,
+                    claimed_source=kwargs.get("claimed_source"),
+                    session_idx=kwargs.get("session_idx"),
+                    observation_group=kwargs.get("observation_group"),
+                    fact_key=kwargs.get("fact_key"),
+                    fact_value=kwargs.get("fact_value"),
+                    multimodal_relation=kwargs.get("multimodal_relation"),
+                )
+                super().write(
+                    text=build_conflict_evidence_text(
+                        fact_key=kwargs.get("fact_key"),
+                        trusted_item=conflicting,
+                        incoming_value=kwargs.get("fact_value"),
+                    ),
+                    source_type="self_summary",
+                    channel_id=str(kwargs.get("channel_id", "conflict")) + "_quoted",
+                    step=int(kwargs.get("step", 0)),
+                    parent_ids=(conflicting.item_id, audit_id),
+                    partition="planning",
+                    trust=min(0.35, trust),
+                    actionable=False,
+                    claimed_source=None,
+                    session_idx=kwargs.get("session_idx"),
+                    observation_group=kwargs.get("observation_group"),
+                    fact_key=kwargs.get("fact_key"),
+                    fact_value="conflict",
+                    multimodal_relation="conflict",
+                )
+                return audit_id
         if partition == "planning" and trust <= self.write_trust_threshold:
             self.write_quarantine_count += 1
             kwargs["partition"] = "audit"
@@ -875,6 +1144,11 @@ class Mem0PlatformMemory(BaseMemory):
             "partition": item.partition,
             "trust": item.trust,
             "session_idx": item.session_idx,
+            "observation_group": item.observation_group,
+            "fact_key": item.fact_key,
+            "fact_value": item.fact_value,
+            "multimodal_relation": item.multimodal_relation,
+            "attack_family": item.attack_family,
             "local_item_id": local_item_id,
         }
         self.client.add(
@@ -921,6 +1195,11 @@ class Mem0PlatformMemory(BaseMemory):
                     actionable=False,
                     claimed_source=None,
                     session_idx=int(metadata["session_idx"]) if metadata.get("session_idx") is not None else None,
+                    observation_group=str(metadata["observation_group"]) if metadata.get("observation_group") is not None else None,
+                    fact_key=str(metadata["fact_key"]) if metadata.get("fact_key") is not None else None,
+                    fact_value=str(metadata["fact_value"]) if metadata.get("fact_value") is not None else None,
+                    multimodal_relation=str(metadata["multimodal_relation"]) if metadata.get("multimodal_relation") is not None else None,
+                    attack_family=str(metadata["attack_family"]) if metadata.get("attack_family") is not None else None,
                 )
             )
 

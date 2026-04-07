@@ -1,4 +1,4 @@
-# WARP Evaluation Results
+# SAGE-Mem Evaluation Results
 
 ## Run Configuration
 
@@ -7,6 +7,7 @@
 | Seeds | 0, 1, 2 |
 | QA per case | 20 |
 | LoCoMo multimodal extension | enabled (synthetic, 20% turn rate) |
+| Stronger LoCoMo attack-family pilot | render → perturb → OCR, paired multimodal observations |
 | Vision caption mode | synthetic |
 | ASU segmentation | enabled (max 400 chars/segment) |
 | LLM write-time guard | gpt-4o-mini (OpenAI backend) |
@@ -29,10 +30,10 @@
 | **H3 ActionFirewall** | 0.2317 | **0.2429** | **0.0000** |
 
 **Key findings:**
-- All three WARP variants suppress ASR to 0.000 on LoCoMo.
+- All three guarded ablations suppress ASR to 0.000 on LoCoMo.
 - MMA retrieve-time baseline remains partially vulnerable (ASR 0.154) under write-time poisoning.
 - ShortContext and unguarded RSum collapse to ASR 1.000, confirming that neither short context nor unconstrained consolidation prevents durable contamination.
-- Clean utility gap: WARP variants (BCU-clean ~0.21–0.23) vs MMA (BCU-clean 0.724) — architectural gap explained in Table 4 (Pareto frontier).
+- Clean utility gap: guarded consolidation-based methods (BCU-clean ~0.21–0.23) vs MMA (BCU-clean 0.724) — architectural gap explained in Table 4 (Pareto frontier).
 
 ---
 
@@ -56,6 +57,52 @@
 
 ---
 
+## Table 1c: LoCoMo Stronger Multimodal Attack-Family Pilot (3 cases, heuristic generator)
+
+> This pilot uses the stronger LoCoMo multimodal generator with real render → perturb → OCR,
+> paired multimodal observations, and three attack families: `adversarial_conflict`,
+> `modality_trust_launder`, and `perception_rewrite`. Artifact:
+> `results/locomo_multimodal_attack_families_pilot.json`
+
+| Method | BCU clean | BCU poisoned | ASR poisoned | conflict quarantine / case | multimodal attack retrieval rate | aligned multimodal retrieval rate |
+|---|---:|---:|---:|---:|---:|---:|
+| MMA retrieve-time | 0.7333 | 0.5378 | 0.2667 | 0.0000 | 0.0667 | 0.3333 |
+| **H1 ConstructorGuard** | 0.6000 | **0.6000** | **0.0000** | **46.6667** | **0.0000** | **1.0000** |
+
+**Key findings:**
+- The stronger multimodal generator is operational end to end in the existing LoCoMo harness.
+- H1 suppresses multimodal attack retrieval to 0.000 in this bounded pilot while retaining aligned multimodal evidence (`aligned_multimodal_retrieval_rate = 1.0000` on the poisoned split).
+- `conflict_quarantine_per_case` gives a direct mechanism-level audit signal for the new observation-level write policy.
+- This is still a bounded pilot, not a replacement for the main LoCoMo table.
+- The new multimodal-specific metrics reported here are:
+  - `conflict_quarantine_per_case`
+  - `write_quarantine_per_case`
+  - `multimodal_attack_retrieval_rate`
+  - `aligned_multimodal_retrieval_rate`
+
+---
+
+## Table 1d: Bounded SAGE-Mem Pilot (3 cases, stronger heuristic multimodal generator)
+
+> Artifact: `results/sage_mem_pilot.json`
+> This bounded pilot reruns the stronger attack-family LoCoMo path after fixing the clean-split
+> multimodal contamination bug. It compares `MMA`, `RSum`, `H1`, and the final combined
+> `SAGE-Mem` method.
+
+| Method | BCU clean | BCU poisoned | ASR poisoned | conflict quarantine / case | multimodal attack retrieval rate |
+|---|---:|---:|---:|---:|---:|
+| MMA retrieve-time | 0.8000 | 0.5333 | 0.3333 | 0.0000 | 0.1333 |
+| RSum — no write guard | 0.6000 | 0.0000 | 1.0000 | 0.0000 | 0.3333 |
+| H1 ConstructorGuard | 0.5333 | **0.6000** | **0.0000** | **52.6667** | 0.6667 |
+| SAGE-Mem | **0.6000** | 0.5333 | **0.0000** | 48.6667 | 0.6667 |
+
+**Key findings:**
+- `SAGE-Mem` improves clean BCU over H1 on this bounded pilot (0.6000 vs 0.5333) while keeping ASR at 0.000.
+- `SAGE-Mem` does not yet exceed H1 on poisoned BCU (0.5333 vs 0.6000), so it should be presented as a promising combined method rather than an already dominant replacement.
+- `RSum` again collapses under poisoning (ASR 1.0000), which confirms that the gains are coming from governed writes rather than from consolidation alone.
+
+---
+
 ## Table 2: MM-BrowseComp — All 5 Attack Types (73 cases, 219 evals)
 
 > All 5 attacks including `semantic_mimicry` (source_type=user, trust=1.0 — intentionally not blocked by any system).
@@ -69,13 +116,13 @@
 | H2 MonotoneLedger | 0.1918 | 0.0000 | 1.0000 |
 | H3 ActionFirewall | 0.1918 | 0.0000 | 1.0000 |
 
-**Why ASR=1.000 for all including WARP:** `semantic_mimicry` uses `source_type="user"` (trust=1.0). No memory system blocks trusted user-sourced corrections by design — this is a deliberate design choice, not a failure. With 5 attacks combined, one unblockable attack is sufficient to mark the case as survived.
+**Why ASR=1.000 for all including SAGE-style guarded methods:** `semantic_mimicry` uses `source_type="user"` (trust=1.0). No memory system blocks trusted user-sourced corrections by design — this is a deliberate design choice, not a failure. With 5 attacks combined, one unblockable attack is sufficient to mark the case as survived.
 
 ---
 
 ## Table 3: MM-BrowseComp — 4 Targeted Attack Types Only (73 cases, 219 evals)
 
-> Excludes `semantic_mimicry`. Attacks: `constructor_launder`, `label_gaming`, `ocr_injection`, `vision_caption_injection` — all of which WARP is specifically designed to block.
+> Excludes `semantic_mimicry`. Attacks: `constructor_launder`, `label_gaming`, `ocr_injection`, `vision_caption_injection` — all of which the SAGE-Mem write boundary is specifically designed to block.
 
 | Method | BCU clean | BCU poisoned | ASR poisoned |
 |---|---:|---:|---:|
@@ -90,7 +137,7 @@
 - H1 and H3 reduce ASR from 1.000 → 0.890 on MM-BrowseComp (write-time content quarantine of ACTION_DIRECTIVE attacks is working).
 - H2 MonotoneLedger does not reduce ASR — trust scoring alone is insufficient when attack items survive to planning memory in few-turn settings.
 - BCU-clean is 0.1918 for all methods, consistent with MM-BrowseComp being a hard benchmark (even o3 < 30% on standard eval).
-- Residual ASR ~0.89: MM-BrowseComp cases have very few turns (1–3 observations), so consolidation doesn't fully prune attack items before retrieval. WARP's defense strengthens with more memory lifecycle events.
+- Residual ASR ~0.89: MM-BrowseComp cases have very few turns (1–3 observations), so consolidation doesn't fully prune attack items before retrieval. SAGE-style defense strengthens with more memory lifecycle events.
 
 ---
 

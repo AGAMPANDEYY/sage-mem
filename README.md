@@ -1,16 +1,16 @@
-# WARP: Write-Time Attested Reliability Pipeline
+# SAGE-Mem: Source-Attested Guarded Episodic Memory
 
 **ICML 2026 Workshop Submission Code**
 
-> *WARP: Write-Time Attested Memory Defenses for Multimodal Long-Horizon Agents*
+> *SAGE-Mem: Source-Attested Guarded Episodic Memory for Multimodal Long-Horizon Agents*
 
 ---
 
-## What WARP Does
+## What SAGE-Mem Does
 
 Persistent memory makes long-horizon agents stateful — but also gives adversaries a durable poisoning surface. A single malicious observation written into memory can survive consolidation and be retrieved as trusted experience indefinitely. Retrieve-time reliability scoring (MMA) helps rank noisy memories but does not secure the write boundary itself.
 
-WARP governs what enters and survives in memory through three mechanisms:
+SAGE-Mem governs what enters and survives in memory through three mechanisms:
 
 | Mechanism | Class | Role |
 |---|---|---|
@@ -21,6 +21,11 @@ WARP governs what enters and survives in memory through three mechanisms:
 | **ASU segmentation** | `_apply_asu_segmentation` | Paragraph-level splits so only the malicious segment is quarantined, not the whole document |
 | **Vision augmentation** | `WriteTimeGuard.extract_from_image` | VLM-extracted image facts added as observations for multimodal cases |
 
+The final combined method in this repo is `SAGEMem_SourceAttestedGuardedEpisodicMemory`, which merges:
+- H1-style write-time quarantine and constructor-safe consolidation
+- H2-style monotone trust capping for derived items
+- multimodal conflict-aware downgrade to audit/evidence rather than plain planning facts
+
 ---
 
 ## Core Hypotheses
@@ -28,6 +33,7 @@ WARP governs what enters and survives in memory through three mechanisms:
 | ID | Mechanism | Effect |
 |----|-----------|--------|
 | **H1** | `ConstructorGuardedSandboxMemory` | Quarantine untrusted writes + strip procedural content at consolidation |
+| **SAGE** | `SAGEMem_SourceAttestedGuardedEpisodicMemory` | Final combined method: write-time guard + monotone provenance cap + multimodal conflict handling |
 | **H2** | `MonotoneProvenanceLedgerMemory` | Prevent trust laundering; monotone provenance constraint |
 | **H3** | `RiskSensitiveToolActionFirewall` | Memory-centric firewall ablation; loosest write gate |
 | **H_ASU** | ASU segmentation | Surgical paragraph-level quarantine for buried payloads — Pareto improvement on LoCoMo |
@@ -90,6 +96,47 @@ The `WriteTimeGuard` (`src/guard_llm.py`) is a stateless LLM-based classifier ru
 
 ---
 
+## SAGE-Mem Math
+
+For a candidate observation `x`, SAGE-Mem uses three decisions:
+
+1. **Write boundary**
+
+\[
+\text{accept}(x)=
+\begin{cases}
+0 & \text{if } g(x)=\text{METADATA} \\
+0 & \text{if } g(x)=\text{DIRECTIVE and } s(x)<\tau_w \\
+0 & \text{if } c(x)=1 \text{ and } s(x)\le t(\hat{x}) \\
+0 & \text{if } s(x)<\tau_w \\
+1 & \text{otherwise}
+\end{cases}
+\]
+
+where:
+- \(s(x)\) is the source prior trust from `default_source_cred`
+- \(g(x)\) is the guard class in `{DATA, DIRECTIVE, METADATA}`
+- \(c(x)\) indicates a lower-trust multimodal conflict with an existing fact \(\hat{x}\)
+- \(\tau_w\) is the write-trust threshold
+
+2. **Monotone derived trust**
+
+\[
+t(y) \le \min \left(t_{\text{base}}(y), \gamma \cdot \min_{p \in P(y)} t(p)\right)
+\]
+
+for any derived item \(y\) with parents \(P(y)\), decay factor \(\gamma \in (0,1]\), and base trust \(t_{\text{base}}\). This is the monotone provenance cap used in `SAGEMemory`.
+
+3. **Retrieval score**
+
+\[
+\text{score}(q,m)=\cos(q,m)\cdot t(m)
+\]
+
+SAGE-Mem intentionally keeps retrieval simpler than H2 so the final combined method does not inherit the full utility cost of the most conservative provenance-only retriever.
+
+---
+
 ## Repo Structure
 
 ```text
@@ -145,6 +192,36 @@ OPENAI_API_KEY=sk-...    # or ANTHROPIC_API_KEY=sk-ant-...
   --disable-cross-topic \
   --out results/locomo_multimodal_memory_layers.json
 ```
+
+### Stronger attack-family LoCoMo multimodality
+```bash
+.venv/bin/python run_eval.py \
+  --enable-locomo-multimodal \
+  --multimodal-adversary-mode heuristic \
+  --disable-cross-topic \
+  --out results/locomo_multimodal_attack_families.json
+```
+
+This keeps the original text turn and adds a paired `ocr_text` or `vision_caption`
+observation. Each paired observation is either `aligned_benign` or one of three
+multimodal attack families: `adversarial_conflict`, `modality_trust_launder`, or
+`perception_rewrite`. The OCR channel now uses a local render → perturb → OCR pipeline
+instead of simple character swaps.
+
+### Frozen LLM-generated multimodal attacks
+```bash
+OPENAI_API_KEY=sk-... .venv/bin/python run_eval.py \
+  --enable-locomo-multimodal \
+  --multimodal-adversary-mode openai \
+  --adversary-model gpt-4o-mini \
+  --adversary-cache-dir .cache/openai_multimodal_attacks \
+  --disable-cross-topic \
+  --out results/locomo_multimodal_contradictions_openai.json
+```
+
+This is a fixed dataset-generation mode, not an adaptive attacker. Each multimodal
+adversarial observation is generated once under a fixed JSON schema, cached locally, and
+then reused across all evaluated memory systems.
 
 ### MM-BrowseComp (requires live-fetched traces)
 ```bash
@@ -251,13 +328,49 @@ H1 reduces ASR 1.000 → 0.890 on 4-attack MM-BrowseComp. Residual 0.89 due to v
 
 This guarded pilot is saved in `results/guard_llm_eval_pilot.json`. It is useful directional evidence that the semantic guard helps on MM-BrowseComp, but it is still only a bounded pilot and should not be presented as the final benchmark result.
 
+### LoCoMo attack-family multimodal pilot (3 cases, heuristic generator)
+
+Artifact: `results/locomo_multimodal_attack_families_pilot.json`
+
+| Method | BCU clean | BCU poison | ASR poison | conflict quarantine / case | multimodal attack retrieval rate | aligned multimodal retrieval rate |
+|---|---:|---:|---:|---:|---:|
+| MMA retrieve-time | 0.7333 | 0.5378 | 0.2667 | 0.0000 | 0.0667 | 0.3333 |
+| H1 ConstructorGuard | 0.6000 | 0.6000 | 0.0000 | 46.6667 | 0.0000 | 1.0000 |
+
+This is a bounded pilot on the stronger multimodal generator, not a main-table result.
+It shows the new observation-level attack families are operational in the benchmark and
+that H1 is quarantining lower-trust multimodal conflicts before they are retrieved. The
+same pilot reports `aligned_multimodal_retrieval_rate = 1.0000` for H1 on the poisoned
+split, so the guard is not simply suppressing all multimodal evidence.
+
+### Bounded SAGE-Mem pilot (3 cases, heuristic multimodal generator)
+
+Artifact: `results/sage_mem_pilot.json`
+
+| Method | BCU clean | BCU poison | ASR poison | conflict quarantine / case | multimodal attack retrieval rate |
+|---|---:|---:|---:|---:|---:|
+| MMA retrieve-time | 0.8000 | 0.5333 | 0.3333 | 0.0000 | 0.1333 |
+| RSum (no guard) | 0.6000 | 0.0000 | 1.0000 | 0.0000 | 0.3333 |
+| H1 ConstructorGuard | 0.5333 | **0.6000** | **0.0000** | **52.6667** | 0.6667 |
+| SAGE-Mem | **0.6000** | 0.5333 | **0.0000** | 48.6667 | 0.6667 |
+
+This bounded pilot is the first direct check of the final combined method after fixing
+the clean-split multimodal contamination bug. On this slice, `SAGE-Mem` improves clean
+BCU over H1 (0.6000 vs 0.5333) while keeping ASR at 0.000, but it does not yet exceed
+H1 on poisoned BCU. That means the scientifically correct read is: the combined method
+is promising, but it is not yet a clear replacement for H1 on the stronger multimodal
+path.
+
 ---
 
 ## Important Notes
 
 - **No benchmark generation requires paid model calls** except the optional LLM guard and vision augmentation (gpt-4o-mini / claude-haiku).
 - The guarded MM-BrowseComp pilot uses paid API calls and currently remains expensive: the 5-case pilot took about 220s and 114 guard API calls.
-- The utility gap between WARP (BCU-clean ~0.23) and MMA (BCU-clean ~0.72) is real and architectural — MMA uses window-based retrieval while WARP uses consolidation-based retrieval. This is reported honestly as an open challenge, not hidden.
+- The stronger LoCoMo attack-family multimodal path is currently validated by a bounded
+  3-case pilot. It should be described as an implemented multimodal poisoning pipeline
+  until larger runs are completed.
+- The utility gap between guarded consolidation-based memory (BCU-clean ~0.23 on the main LoCoMo table) and MMA (BCU-clean ~0.72) is real and architectural — MMA uses window-based retrieval while SAGE-Mem-style methods use consolidation-based retrieval. This is reported honestly as an open challenge, not hidden.
 - `semantic_mimicry` uses `source_type="user"` (trust=1.0) — no memory system blocks this by design. Excluded from targeted MM-BrowseComp attack analysis.
 - MM-BrowseComp BCU-clean ceiling is ~0.19 for all methods (even o3 < 30% on standard eval). Vision augmentation is designed to raise this ceiling.
 - All numeric claims come from regenerated result files, not hardcoded in this README.
