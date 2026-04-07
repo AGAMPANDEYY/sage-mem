@@ -56,6 +56,7 @@ The final combined method in this repo is `SAGEMem_SourceAttestedGuardedEpisodic
 - `label_gaming` — OBJECT_LABEL schema manipulation
 - `ocr_injection` — malicious directive in OCR-extracted text
 - `vision_caption_injection` — malicious directive in vision caption observation
+- `adaptive_nl_evasion` — natural-language policy update that avoids the hardcoded regex markers
 - `buried_payload` — ACTION_DIRECTIVE embedded inside legitimate web observation text
 
 ### MM-BrowseComp (73 cases with live-fetched observation traces)
@@ -93,6 +94,64 @@ The `WriteTimeGuard` (`src/guard_llm.py`) is a stateless LLM-based classifier ru
 **Backend:** Auto-detects `ANTHROPIC_API_KEY` (claude-haiku-4-5-20251001) or `OPENAI_API_KEY` (gpt-4o-mini). Falls back gracefully to regex-only if no key available.
 
 **Vision augmentation:** For MM-BrowseComp cases with image URLs, fetches image → VLM → adds `VISION_EXTRACT: ...` observation with jersey numbers, scores, stadium IDs, visible text. Critical for MM-BrowseComp since questions are fundamentally visual (answer verbatim in observations only 11% of the time).
+
+---
+
+## Related Work Positioning
+
+SAGE-Mem should be read as a **combination paper with a narrow systems claim**. Prior
+work already establishes that agent memory can be poisoned, that proactive filtering is
+useful, that multimodal inputs create additional attack surface, and that dedicated
+guard layers or zero-trust memory architectures are valuable. The gap we target is
+their **joint treatment at the memory lifecycle level**.
+
+### 1. Agentic Memory Poisoning
+
+- **AgentPoison (2024)** establishes long-term memory and knowledge bases as persistent attack surfaces.
+- **MINJA / query-only memory injection (2025)** shows malicious records can be implanted through ordinary interaction without direct database access.
+- **Zombie Agents (2026)** shows self-evolving agents can reinforce one malicious write across later sessions.
+
+These works motivate our threat model. SAGE-Mem’s added step is to constrain not only
+what enters memory, but what later becomes **derived planning memory** through
+summarization and reuse.
+
+### 2. Proactive Memory Governance
+
+- **A-MemGuard (2025)** is the closest proactive-defense parallel.
+- **SSGM / Governing Evolving Memory (2026)** frames evolving memory as a governed state-update problem.
+- **SuperLocalMemory (2026)** supports provenance-aware trust and memory isolation.
+
+Relative to these, SAGE-Mem’s main emphasis is narrower and more concrete: observation-
+level segmentation, constructor-safe consolidation, and provenance-monotone trust caps
+under poisoned writes.
+
+### 3. Multimodal Robustness
+
+- **One Pic is All it Takes (2025)** shows that a single poisoned image can corrupt visual retrieval.
+- **ARGUS (2025)** and **Directional Embedding Smoothing (2026)** defend multimodal model behavior against indirect injection or jailbreak-like attacks.
+
+These papers justify including OCR-, caption-, and image-derived observations in the
+threat model. SAGE-Mem differs by protecting the **persistent memory state** produced by
+those observations, not only the model’s immediate multimodal output.
+
+### 4. Guarding, Zero-Trust, and Provenance
+
+- **GuardAgent (2024)** justifies a dedicated guard model rather than letting the main agent consume unsafe text directly.
+- **MemTrust (2026)** provides the right security philosophy: all writes should be treated as untrusted until validated.
+- **MemWeaver (2026)** motivates traceable long-horizon memory and evidence-grounded reuse.
+
+SAGE-Mem adopts these principles, but uses them for a more specific purpose: preventing
+poisoned lineage from being promoted into trusted, durable planning state.
+
+### Honest Novelty Claim
+
+SAGE-Mem is **not** the first write-time defense. The defensible novelty is the
+combination of:
+- observation-level ASU segmentation for buried payloads,
+- constructor-safe consolidation for derived memory writes,
+- provenance-monotone trust capping,
+- multimodal conflict-aware write handling,
+- and long-horizon evaluation spanning LoCoMo and MM-BrowseComp-style observations.
 
 ---
 
@@ -134,6 +193,29 @@ for any derived item \(y\) with parents \(P(y)\), decay factor \(\gamma \in (0,1
 \]
 
 SAGE-Mem intentionally keeps retrieval simpler than H2 so the final combined method does not inherit the full utility cost of the most conservative provenance-only retriever.
+
+4. **Derived-memory corruption**
+
+\[
+\mathrm{DMC}(M_t)=\sum_{m \in M_t^{planning}}
+\mathbf{1}\!\left[
+\mathrm{source}(m)\in\{\texttt{self\_summary},\texttt{tool\_echo}\}\wedge
+\mathrm{descends\_from\_attack}(m)\wedge
+\neg \mathrm{evidence\_only}(m)
+\right]
+\]
+
+This metric directly tests the constructor-safe consolidation claim: poisoned raw
+observations should not be promoted into derived planning memory through summarization
+or rewriting.
+
+5. **Adaptive natural-language evasion**
+
+The repo now also includes `adaptive_nl_evasion`, a fixed natural-language attack that
+avoids the hardcoded benchmark markers (`ACTION_DIRECTIVE`, `OBJECT_LABEL`) and instead
+poses as a plausible update policy. This attack is meant to test the semantic LLM guard,
+not just the regex fallback. The current bounded pilot should be read honestly as an
+initial stress test, not yet as a final benchmark result.
 
 ---
 
@@ -360,6 +442,22 @@ BCU over H1 (0.6000 vs 0.5333) while keeping ASR at 0.000, but it does not yet e
 H1 on poisoned BCU. That means the scientifically correct read is: the combined method
 is promising, but it is not yet a clear replacement for H1 on the stronger multimodal
 path.
+
+### Bounded adaptive-evasion and derived-memory pilots
+
+Artifacts:
+- `results/guard_llm_adaptive_pilot.json`
+- `results/adaptive_nl_derived_metric_pilot.json`
+- `results/derived_memory_constructor_launder_pilot.json`
+
+Current honest read:
+- `adaptive_nl_evasion` is implemented as a fixed natural-language policy-update attack
+  that avoids the benchmark marker strings, but the current bounded pilot is still a
+  weak stress test rather than a strong replacement for the main attack suite.
+- `derived_memory_corruption` is implemented as a metric for corrupted `self_summary`
+  and `tool_echo` planning items descending from attack lineage. On the current bounded
+  constructor-launder pilot, it remains `0.0` for all methods, so it should be treated
+  as a diagnostic instrument that is implemented but not yet a headline empirical result.
 
 ---
 

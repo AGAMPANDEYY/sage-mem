@@ -77,6 +77,8 @@ def parse_args():
                         help="Output JSON path")
     parser.add_argument("--out-table", type=str, default=str(OUT_TABLE),
                         help="Output table path")
+    parser.add_argument("--attacks", nargs="+", default=None,
+                        help="Optional attack subset for bounded pilots")
     return parser.parse_args()
 
 
@@ -85,6 +87,7 @@ SEEDS = ARGS.seeds
 QA_PER_CASE = ARGS.qa_per_case
 OUT = Path(ARGS.out)
 OUT_TABLE = Path(ARGS.out_table)
+ATTACKS = ARGS.attacks or ATTACKS
 
 device = (torch.device("mps") if torch.backends.mps.is_available()
           else torch.device("cuda") if torch.cuda.is_available()
