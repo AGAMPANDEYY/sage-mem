@@ -554,8 +554,11 @@ class MMARetrieveTimeReliabilityMemory(BaseMemory):
         if lbl is None:
             consensus = 1.0
         else:
-            agree = 0
-            disagree = 0
+            # Source Diversity Weighting: count unique agreeing channels, not raw item count.
+            # This prevents label_gaming (attacker floods memory with copies from one channel)
+            # from inflating consensus score. 10 items from 1 channel = 1 agreeing channel.
+            agree_channels: set = set()
+            disagree_channels: set = set()
             for other in self.items:
                 if other.item_id == it.item_id:
                     continue
@@ -563,9 +566,11 @@ class MMARetrieveTimeReliabilityMemory(BaseMemory):
                 if olbl is None:
                     continue
                 if olbl == lbl:
-                    agree += 1
+                    agree_channels.add(other.channel_id)
                 else:
-                    disagree += 1
+                    disagree_channels.add(other.channel_id)
+            agree = len(agree_channels)
+            disagree = len(disagree_channels)
             consensus = (1.0 + agree) / (1.0 + agree + disagree)
 
         rel = self.w_source * src + self.w_decay * decay + self.w_consensus * consensus
@@ -753,6 +758,13 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
     # Default write-time trust threshold — used only when no cfg or explicit override
     WRITE_TRUST_THRESHOLD = 0.30
 
+    # Channel Reputation Tracking (CRT) constants
+    # When a channel is caught injecting an attack, its reputation decays by this factor.
+    # A reputation of 0.7 means all future writes from that channel get 30% trust penalty.
+    _CRT_DECAY = 0.70        # multiply reputation by this on each quarantine event
+    _CRT_RECOVER = 1.05      # slow recovery on each clean write (capped at 1.0)
+    _CRT_MIN = 0.10          # floor — channel can't be trusted less than 10%
+
     def __init__(
         self,
         *,
@@ -787,6 +799,9 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         self._cfg = cfg
         self._bayes_trust = bayes_trust
         self._anomaly_detector = anomaly_detector
+        # Channel Reputation Tracking: maps channel_id → reputation score (0.0–1.0)
+        # All channels start at 1.0 (clean record). Decays when caught, recovers slowly.
+        self._channel_rep: Dict[str, float] = {}
         # Threshold resolution order: explicit arg > cfg > class default
         if write_trust_threshold is not None:
             self.WRITE_TRUST_THRESHOLD = float(write_trust_threshold)
@@ -801,6 +816,20 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         self.write_quarantine_count += 1
         key = str(channel_id or source_type or "_unknown")
         self._write_quarantine_by_channel[key] += 1
+
+    def _get_channel_rep(self, channel_id: str) -> float:
+        """Return current reputation for a channel (default 1.0 if unseen)."""
+        return self._channel_rep.get(channel_id, 1.0)
+
+    def _penalize_channel(self, channel_id: str) -> None:
+        """Decay channel reputation after a quarantine event."""
+        current = self._get_channel_rep(channel_id)
+        self._channel_rep[channel_id] = max(self._CRT_MIN, current * self._CRT_DECAY)
+
+    def _reward_channel(self, channel_id: str) -> None:
+        """Slowly recover channel reputation after a clean write."""
+        current = self._get_channel_rep(channel_id)
+        self._channel_rep[channel_id] = min(1.0, current * self._CRT_RECOVER)
 
     def write(
         self,
@@ -843,6 +872,16 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             )
         else:
             write_threshold = self.WRITE_TRUST_THRESHOLD
+
+        # ── Channel Reputation Tracking (CRT) ────────────────────────────────
+        # Apply per-channel reputation multiplier to trust score.
+        # Channels that have previously injected attacks receive a persistent
+        # trust penalty on all future writes, even if the new content looks clean.
+        # User channel is exempt — we always trust the user fully.
+        if source_type != "user":
+            rep = self._get_channel_rep(channel_id)
+            computed_trust = _clip01(computed_trust * rep)
+        # ─────────────────────────────────────────────────────────────────────
 
         if partition == "planning" and source_type != "user":
             conflicting = find_conflicting_fact(
@@ -907,6 +946,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             if guard_result.quarantine:
                 # DIRECTIVE or high-risk: route to audit with sanitized text
                 self._record_write_quarantine(channel_id, source_type)
+                self._penalize_channel(channel_id)  # CRT: this channel got caught
                 audit_text = guard_result.sanitized_text or (
                     f"EVIDENCE_ONLY: (quarantined by LLM guard — "
                     f"risk={guard_result.risk_score:.2f}, "
@@ -975,6 +1015,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         )
         if quarantine:
             self._record_write_quarantine(channel_id, source_type)
+            self._penalize_channel(channel_id)  # CRT: this channel got caught
             return super().write(
                 text=write_text, source_type=source_type, channel_id=channel_id,
                 step=step, parent_ids=parent_ids, partition="audit",
@@ -984,6 +1025,9 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 fact_value=fact_value, multimodal_relation=multimodal_relation,
                 attack_family=attack_family,
             )
+        # CRT: clean write — channel slowly recovers reputation
+        if source_type != "user":
+            self._reward_channel(channel_id)
         return super().write(
             text=write_text, source_type=source_type, channel_id=channel_id,
             step=step, parent_ids=parent_ids, partition=partition,

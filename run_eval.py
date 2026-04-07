@@ -149,7 +149,7 @@ def print_results_table(summary: dict, *, title: str) -> None:
         cross = splits.get("poisoned_cross_topic", {})
         asr_x = cross.get("ASR", float("nan"))
         n     = pois.get("n_cases", 0)
-        marker = " ✓" if bcu_p >= 0.9 else (" ✗" if bcu_p <= 0.1 else "  ")
+        marker = " OK" if bcu_p >= 0.9 else (" XX" if bcu_p <= 0.1 else "  ")
         line = f"  {name:<26}  {bcu_c:>10.4f}  {bcu_p:>10.4f}  {asr_p:>10.4f}"
         if has_behavioral:
             line += f"  {asr_llm:>10.4f}" if not (isinstance(asr_llm, float) and math.isnan(asr_llm)) else f"  {'N/A':>10}"
