@@ -65,6 +65,28 @@ The final combined method in this repo is `SAGEMem_SourceAttestedGuardedEpisodic
 - Vision augmentation: gpt-4o-mini extracts jersey numbers, scores, names from question images
 - Clean and poisoned splits; `semantic_mimicry` excluded from targeted eval (user-trust = 1.0, by design unblockable)
 
+### Realism of the multimodal attacks
+
+The multimodal attack surface is realistic; the full benchmark construction is only
+partially realistic.
+
+- Realistic: OCR-, caption-, and web-derived observations are genuine memory-ingestion
+  channels for long-horizon agents.
+- Realistic: buried payloads inside heterogeneous web observations are a plausible
+  failure mode for browsing agents.
+- Partially realistic: the LoCoMo multimodal extension is a **controlled synthetic
+  extension**, not a native multimodal user-trajectory dataset.
+- Partially realistic: the OCR path is a synthetic render → perturb → OCR pipeline,
+  intended to model noisy perception writes rather than reproduce raw real-world image
+  streams perfectly.
+- Partially realistic: `vision_caption_injection` is a simulated caption-channel attack,
+  not a benchmark of naturally occurring end-user images.
+
+The right claim is therefore that these attacks are **mechanism-faithful stress tests of
+multimodal memory ingestion**, not that they fully replicate real web/vision agent logs.
+In this repo, LoCoMo provides the controlled long-horizon memory setting, while
+MM-BrowseComp provides the real multimodal benchmark component.
+
 ---
 
 ## LLM Write-Time Guard (Shadow Classifier)
