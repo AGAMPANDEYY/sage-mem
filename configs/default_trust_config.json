@@ -1,0 +1,74 @@
+{
+  "_comment": "Default source credibility values. Overridden by calibration run. Do not edit by hand — run scripts/calibrate_trust.py to regenerate.",
+  "_calibrated": false,
+  "_calibration_source": "intuitive_prior",
+  "source_cred": {
+    "user":              1.00,
+    "tool_output_text":  0.70,
+    "ocr_text":          0.60,
+    "vision_caption":    0.58,
+    "self_summary":      0.45,
+    "tool_echo":         0.20,
+    "attacker":          0.10,
+    "_default":          0.35
+  },
+  "bayesian_prior": {
+    "_comment": "Beta(alpha, beta) prior per source_type. alpha/(alpha+beta) must equal source_cred value.",
+    "user":              {"alpha": 20.0, "beta": 0.0,  "_note": "user is root trust anchor, beta=0"},
+    "tool_output_text":  {"alpha": 7.0,  "beta": 3.0},
+    "ocr_text":          {"alpha": 6.0,  "beta": 4.0},
+    "vision_caption":    {"alpha": 5.8,  "beta": 4.2},
+    "self_summary":      {"alpha": 4.5,  "beta": 5.5},
+    "tool_echo":         {"alpha": 2.0,  "beta": 8.0},
+    "attacker":          {"alpha": 1.0,  "beta": 9.0},
+    "_default":          {"alpha": 3.5,  "beta": 6.5}
+  },
+  "thresholds": {
+    "_comment": "All thresholds derived from calibration. alpha_fpr = max tolerated benign quarantine rate.",
+    "write_trust_threshold":        0.25,
+    "risk_quarantine_threshold":    0.60,
+    "chain_decay":                  0.88,
+    "independence_bonus":           0.10,
+    "alpha_fpr":                    0.05,
+    "conformal_coverage":           0.95,
+    "anomaly_quarantine_percentile":90,
+    "consistency_contradiction_cosine": 0.25,
+    "consistency_confirm_cosine":       0.75,
+    "correction_plausibility_low":      0.30,
+    "correction_plausibility_high":     0.70,
+    "correction_frequency_max":         3,
+    "ensemble_escalation_delta":        0.35,
+    "ensemble_agreement_threshold":     1.30,
+    "avg_trust_high_integrity":         0.65,
+    "reactive_tightening_lambda":       0.20,
+    "reactive_tightening_cap":          0.45,
+    "warmup_writes":                    5,
+    "consolidation_summary_trust":      0.70
+  },
+  "consolidation": {
+    "period_K":                     4,
+    "keep_last_M_raw":              4,
+    "procedural_classifier_threshold": 0.55
+  },
+  "retrieval": {
+    "top_k":                        8,
+    "mma_w_source":                 0.50,
+    "mma_w_decay":                  0.20,
+    "mma_w_consensus":              0.30,
+    "mma_decay_half_life_steps":    50
+  },
+  "guard": {
+    "tier1_model":                  "claude-haiku-4-5-20251001",
+    "tier2_model":                  "claude-sonnet-4-6",
+    "tier1_model_oai":              "gpt-5-mini",
+    "tier2_model_oai":              "gpt-5",
+    "cache_size":                   8192,
+    "max_text_chars":               2000
+  },
+  "injection": {
+    "position_mode":                "random",
+    "early_fraction":               0.20,
+    "late_fraction":                0.85,
+    "post_consolidation_k":         4
+  }
+}

@@ -10,21 +10,45 @@
 
 Persistent memory makes long-horizon agents stateful — but also gives adversaries a durable poisoning surface. A single malicious observation written into memory can survive consolidation and be retrieved as trusted experience indefinitely. Retrieve-time reliability scoring (MMA) helps rank noisy memories but does not secure the write boundary itself.
 
-SAGE-Mem governs what enters and survives in memory through three mechanisms:
+SAGE-Mem governs what enters and survives in memory through layered write-time mechanisms:
 
 | Mechanism | Class | Role |
 |---|---|---|
 | **Write-time trust gate** | `ConstructorGuardedSandboxMemory` | Quarantine low-trust writes before they reach planning memory |
-| **LLM Shadow Classifier** | `WriteTimeGuard` | Semantic classification (DATA \| DIRECTIVE \| METADATA) at write boundary |
+| **Bayesian channel trust** | `BayesianChannelTrust` | Per-channel Beta-Bernoulli posterior; reactive threshold tightens after attack detections |
+| **Session anomaly detection** | `SessionAnomalyDetector` | Mahalanobis distance from benign write distribution; signature-free |
+| **Multi-turn consistency graph** | `MultiTurnConsistencyGraph` | CONFIRMS/CONTRADICTS/UPDATES edges; detects channel-level contradiction patterns |
+| **Cross-modal consistency defense** | `_check_visual_source_plausibility` | Flags directive language in OCR/VLM channels; detects false cross-modal corroboration |
+| **LLM Shadow Classifier** | `WriteTimeGuard` / `MultiAgentGuard` | Skeptic+Advocate ensemble; selective Tier-2 escalation |
 | **Constructor-safe consolidation** | `ConstructorGuardedSandboxMemory` | Strip procedural content at consolidation; prevent trust escalation |
 | **Monotone provenance ledger** | `MonotoneProvenanceLedgerMemory` | Prevent trust laundering through rewriting |
-| **ASU segmentation** | `_apply_asu_segmentation` | Paragraph-level splits so only the malicious segment is quarantined, not the whole document |
+| **ASU segmentation** | `_apply_asu_segmentation` | Paragraph-level splits so only the malicious segment is quarantined |
 | **Vision augmentation** | `WriteTimeGuard.extract_from_image` | VLM-extracted image facts added as observations for multimodal cases |
 
-The final combined method in this repo is `SAGEMem_SourceAttestedGuardedEpisodicMemory`, which merges:
+The final combined method (`SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect`) merges:
 - H1-style write-time quarantine and constructor-safe consolidation
-- H2-style monotone trust capping for derived items
-- multimodal conflict-aware downgrade to audit/evidence rather than plain planning facts
+- Bayesian adaptive trust (no hardcoded thresholds)
+- Mahalanobis anomaly detection (signature-free, session-relative)
+- Multi-turn consistency graph (multi-session coherence)
+- Cross-modal consistency defense (Visual Prompt Injection detection)
+- LLM multi-agent guard with conformal coverage guarantee
+
+Evaluation hygiene matters for this architecture: Bayesian trust, anomaly baselines, and consistency state must be instantiated per case/session rather than reused globally across the benchmark run. Reusing them across cases leaks information and invalidates the security numbers.
+
+---
+
+## Trust Boundary Assumption
+
+**This paper operates within a specific trust boundary that must be stated explicitly.**
+
+SAGE-Mem assumes the `source_type` field attached to each memory write is correctly assigned by the orchestration layer. That is: when the agent writes `source_type="tool_output_text"`, the orchestrator has verified that this text actually came from a tool call result, not from an adversary impersonating a tool.
+
+**What this means for the threat model:**
+- An adversary who controls a *tool's output* can inject malicious content — SAGE-Mem defends against this via behavioral content analysis (guard, anomaly detector, consistency graph).
+- An adversary who *compromises the orchestrator itself* (and can set arbitrary `source_type` values) is **outside the threat model** and is noted as future work.
+- `source_type="user"` receives highest trust (1.0) by design — legitimate user corrections must be accepted. The `CorrectionPlausibilityScorer` detects implausibly frequent or ungrounded "user" corrections, but cannot block a genuine user acting adversarially.
+
+This is a standard trust boundary assumption in agent memory security (see MemTrust 2026, GuardAgent 2024). The defensible claim is that SAGE-Mem secures the write boundary **given correct source attribution**, which corresponds to the realistic deployment model where the orchestration layer is trusted.
 
 ---
 
@@ -33,7 +57,7 @@ The final combined method in this repo is `SAGEMem_SourceAttestedGuardedEpisodic
 | ID | Mechanism | Effect |
 |----|-----------|--------|
 | **H1** | `ConstructorGuardedSandboxMemory` | Quarantine untrusted writes + strip procedural content at consolidation |
-| **SAGE** | `SAGEMem_SourceAttestedGuardedEpisodicMemory` | Final combined method: write-time guard + monotone provenance cap + multimodal conflict handling |
+| **SAGE** | `SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect` | Final combined method: full write-time multimodal defense |
 | **H2** | `MonotoneProvenanceLedgerMemory` | Prevent trust laundering; monotone provenance constraint |
 | **H3** | `RiskSensitiveToolActionFirewall` | Memory-centric firewall ablation; loosest write gate |
 | **H_ASU** | ASU segmentation | Surgical paragraph-level quarantine for buried payloads — Pareto improvement on LoCoMo |
@@ -51,18 +75,29 @@ The final combined method in this repo is `SAGEMem_SourceAttestedGuardedEpisodic
 - Synthetic multimodal preprocessing: ~20% of turns → OCR-derived or vision-caption-derived observations
 
 **Attack types:**
-- `semantic_mimicry` — high-trust source (user), cannot be blocked by design
-- `constructor_launder` — trust laundering through summarization chain
-- `label_gaming` — OBJECT_LABEL schema manipulation
-- `ocr_injection` — malicious directive in OCR-extracted text
-- `vision_caption_injection` — malicious directive in vision caption observation
-- `adaptive_nl_evasion` — natural-language policy update that avoids the hardcoded regex markers
-- `buried_payload` — ACTION_DIRECTIVE embedded inside legitimate web observation text
 
-### MM-BrowseComp (73 cases with live-fetched observation traces)
+| Attack | Channel | Defense tested |
+|---|---|---|
+| `semantic_mimicry` | `user` (trust=1.0) | Unblockable by design; CorrectionPlausibilityScorer partially mitigates |
+| `constructor_launder` | `self_summary` | Constructor-safe consolidation, monotone trust cap |
+| `label_gaming` | `tool_echo` | Write-time trust gate, LLM guard |
+| `ocr_injection` | `ocr_text` | Write-time trust gate, cross-modal plausibility |
+| `vision_caption_injection` | `vision_caption` | Write-time trust gate, cross-modal plausibility |
+| `visual_prompt_injection` | `ocr_text` + `vision_caption` (same image) | **Cross-modal consistency defense** — both channels flagged; false corroboration detected |
+| `adaptive_nl_evasion` | `tool_output_text` | LLM semantic guard (regex-blind); anomaly detector |
+| `buried_payload` | inherited from victim turn | ASU paragraph-level segmentation |
+
+**Visual Prompt Injection (VPI) — new attack:**
+
+VPI is the first attack in this benchmark that spans two modalities from a single source. The adversary crafts an image containing embedded directive text. When the agent processes the image, both the OCR pipeline AND the VLM captioner extract the adversarial payload — appearing as independent corroborating evidence. Systems that reward multi-source consensus (e.g., independence bonus in MonotoneProvenanceLedger) are *more* deceived by this attack, not less.
+
+The defense (`_check_observation_group_corroboration`) detects when two visual writes sharing the same `observation_group` (same image) both contain directive language — flagging false cross-modal corroboration as an attack signal rather than a trust signal.
+
+### Adversarially Augmented MM-BrowseComp (73 cases with live-fetched observation traces)
 - Official encrypted/decrypted JSONL schema (XOR+SHA256, canary field as key)
 - 73 cases with live-fetched URL text + Tesseract OCR on images
 - Vision augmentation: gpt-4o-mini extracts jersey numbers, scores, names from question images
+- We construct an adversarial extension of MM-BrowseComp by injecting attacks into memory-ingestion traces rather than changing the underlying task labels
 - Clean and poisoned splits; `semantic_mimicry` excluded from targeted eval (user-trust = 1.0, by design unblockable)
 
 ### Realism of the multimodal attacks
@@ -70,22 +105,30 @@ The final combined method in this repo is `SAGEMem_SourceAttestedGuardedEpisodic
 The multimodal attack surface is realistic; the full benchmark construction is only
 partially realistic.
 
-- Realistic: OCR-, caption-, and web-derived observations are genuine memory-ingestion
-  channels for long-horizon agents.
-- Realistic: buried payloads inside heterogeneous web observations are a plausible
-  failure mode for browsing agents.
-- Partially realistic: the LoCoMo multimodal extension is a **controlled synthetic
-  extension**, not a native multimodal user-trajectory dataset.
-- Partially realistic: the OCR path is a synthetic render → perturb → OCR pipeline,
-  intended to model noisy perception writes rather than reproduce raw real-world image
-  streams perfectly.
-- Partially realistic: `vision_caption_injection` is a simulated caption-channel attack,
-  not a benchmark of naturally occurring end-user images.
+- **Realistic:** OCR-, caption-, and web-derived observations are genuine memory-ingestion channels for long-horizon agents.
+- **Realistic:** buried payloads inside heterogeneous web observations are a plausible failure mode for browsing agents.
+- **Realistic:** Visual Prompt Injection (VPI) models the actual threat of adversarially crafted images — real-world attacks inject text into images for exactly this purpose (see "Prompt Injection Attacks on Vision Language Models", 2024).
+- **Partially realistic:** the LoCoMo multimodal extension is a **controlled synthetic extension**, not a native multimodal dataset.
+- **Partially realistic:** the OCR path is a synthetic render → perturb → OCR pipeline, intended to model noisy perception writes rather than reproduce raw real-world image streams.
+- **Partially realistic:** `vision_caption_injection` is a simulated caption-channel attack. Real VLM captioners would need to be tested with actual adversarial images.
 
-The right claim is therefore that these attacks are **mechanism-faithful stress tests of
-multimodal memory ingestion**, not that they fully replicate real web/vision agent logs.
-In this repo, LoCoMo provides the controlled long-horizon memory setting, while
-MM-BrowseComp provides the real multimodal benchmark component.
+The right claim is that these attacks are **mechanism-faithful stress tests of multimodal memory ingestion**. LoCoMo provides the controlled long-horizon memory setting; the adversarially augmented MM-BrowseComp extension provides the higher-realism multimodal benchmark setting; VPI provides the cross-modal corroboration threat model that prior work does not cover.
+
+### What we compare against (and why)
+
+The correct comparison structure for this paper is **ablation within our own defense stack**, not external product comparison:
+
+| What to compare | Why |
+|---|---|
+| `RSum (no guard)` baseline | Establishes the problem: ASR=1.0 with no defense |
+| `MMA retrieve-time` | Shows retrieve-time defense is insufficient (ASR still 15–33%) |
+| `H1 ConstructorGuard` | Write-time defense; primary baseline for all ablations |
+| `H2 MonotoneLedger` | Conservative provenance alternative; trades BCU for lower ASR |
+| `H3 ActionFirewall` | Action-time defense; different point in the pipeline |
+| `SAGE-Mem` | Full calibrated stack (Bayesian trust + consistency graph + anomaly detection + VPI defense) |
+
+**Why not compare against mem0 / Letta / Hindsight externally?**
+These systems have no adversarial write defense by design. Showing high ASR on them proves the attack exists, not that our defense is better than a comparable defense. Including them as a "baseline" conflates "general memory system" with "adversarial memory defense" and will be flagged by reviewers. The valid external reference is **MMA** (our retrieve-time baseline), which is the prior defense approach this work extends.
 
 ---
 
@@ -113,7 +156,7 @@ The `WriteTimeGuard` (`src/guard_llm.py`) is a stateless LLM-based classifier ru
 "The stadium has capacity 30,150 seats"     → DATA,      risk=0.00, written
 ```
 
-**Backend:** Auto-detects `ANTHROPIC_API_KEY` (claude-haiku-4-5-20251001) or `OPENAI_API_KEY` (gpt-4o-mini). Falls back gracefully to regex-only if no key available.
+**Backend:** Defaults to `OPENAI_API_KEY` using `gpt-5-mini`, and falls back to `ANTHROPIC_API_KEY` only if OpenAI credentials are unavailable. Falls back gracefully to regex-only if no key is available.
 
 **Vision augmentation:** For MM-BrowseComp cases with image URLs, fetches image → VLM → adds `VISION_EXTRACT: ...` observation with jersey numbers, scores, stadium IDs, visible text. Critical for MM-BrowseComp since questions are fundamentally visual (answer verbatim in observations only 11% of the time).
 
@@ -245,15 +288,29 @@ initial stress test, not yet as a final benchmark result.
 
 ```text
 mem-shield/
-├── run_eval.py                       # Main LoCoMo + MM-BrowseComp eval
+├── run_eval.py                       # Main LoCoMo + MM-BrowseComp eval (--sage-v2 --llm-eval)
 ├── sweep_pareto.py                   # H1 threshold Pareto frontier sweep
 ├── eval_buried_payload.py            # Buried payload + ASU segmentation eval
 ├── eval_guard_llm.py                 # LLM guard + vision augmentation eval
+├── scripts/
+│   └── calibrate_trust.py           # Offline Bayesian trust calibration from eval results
+├── configs/
+│   ├── default_trust_config.json     # All hyperparameters (no hardcoded scalars in Python)
+│   └── calibrated_trust_config.json  # Generated by calibrate_trust.py after a clean eval run
 ├── requirements.txt
 ├── src/
-│   ├── memory.py                     # All memory classes (H1/H2/H3/MMA/RSum)
-│   ├── mma_bench_suite.py            # Benchmark eval harness + attack injection
-│   ├── guard_llm.py                  # LLM Shadow Classifier + vision extractor
+│   ├── memory.py                     # All memory classes (H1/H2/H3/MMA/RSum/SAGEMemV2)
+│   │                                 #   + cross-modal consistency defense
+│   ├── config.py                     # SAGEMemConfig — typed, validated, JSON-driven
+│   ├── trust_calibration.py          # BayesianChannelTrust, ConformalTrustThreshold,
+│   │                                 #   SourceCredibilityCalibrator
+│   ├── consistency_graph.py          # MultiTurnConsistencyGraph (sliding window, O(128) nodes)
+│   │                                 #   CorrectionPlausibilityScorer
+│   ├── anomaly_detector.py           # SessionAnomalyDetector (Welford + Mahalanobis)
+│   ├── guard_ensemble.py             # MultiAgentGuard (Skeptic + Advocate, Tier-2 escalation)
+│   ├── eval_judge.py                 # BehavioralAttackJudge, LLMAnswerJudge (LLM-based ASR)
+│   ├── mma_bench_suite.py            # Benchmark harness + all attack types including VPI
+│   ├── guard_llm.py                  # WriteTimeGuard (LLM Shadow Classifier + vision extractor)
 │   ├── procedural.py                 # TinyProceduralClassifier (regex + neural)
 │   ├── build_mm_browsecomp_traces.py # Live URL fetch + OCR trace builder
 │   ├── prepare_mm_browsecomp_cases.py
@@ -288,6 +345,102 @@ OPENAI_API_KEY=sk-...    # or ANTHROPIC_API_KEY=sk-ant-...
 ---
 
 ## Running Evaluations
+
+### Recommended Workflow
+
+Use this sequence before any paper-scale run.
+
+```bash
+# 1. Regression tests
+.venv/bin/python -m unittest tests/test_sagemem_regressions.py
+
+# 2. Smoke test: mixed LoCoMo attacks, no API calls
+.venv/bin/python run_eval.py \
+  --quick --sage-v2 --disable-cross-topic --case-limit 3 \
+  --out results/smoke_locomo.json
+
+# 3. Smoke test: mixed LoCoMo attacks with behavioral judge
+.venv/bin/python run_eval.py \
+  --quick --sage-v2 --llm-eval --disable-cross-topic --case-limit 3 \
+  --out results/smoke_locomo_llm.json
+
+# 4. Smoke test: VPI-only with behavioral judge
+.venv/bin/python run_eval.py \
+  --quick --sage-v2 --llm-eval --disable-cross-topic \
+  --attacks visual_prompt_injection --case-limit 3 \
+  --out results/smoke_vpi_llm.json
+```
+
+Inspect the poisoned split before moving on:
+
+```bash
+jq '.summary["MMA_RetrieveTimeReliabilityScoring_Baseline"].poisoned' results/smoke_locomo_llm.json
+jq '.summary["ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation"].poisoned' results/smoke_locomo_llm.json
+jq '.summary["SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect"].poisoned' results/smoke_locomo_llm.json
+```
+
+Focus on `ASR_behavioral`, `BenignCompletionUnderAttack_behavioral`,
+`derived_memory_corruption_rate`, and `write_quarantine_per_case`.
+
+### Full Pipeline
+
+```bash
+# Main LoCoMo run
+.venv/bin/python run_eval.py \
+  --sage-v2 \
+  --position-mode random \
+  --seeds 0 1 2 \
+  --out results/sagemem_main.json
+
+# Main LoCoMo run with behavioral judge
+.venv/bin/python run_eval.py \
+  --sage-v2 --llm-eval \
+  --position-mode random \
+  --seeds 0 1 2 \
+  --out results/sagemem_main_llm.json
+
+# VPI-only run with behavioral judge
+.venv/bin/python run_eval.py \
+  --sage-v2 --llm-eval \
+  --disable-cross-topic \
+  --attacks visual_prompt_injection \
+  --position-mode random \
+  --seeds 0 1 2 \
+  --out results/sagemem_vpi_llm.json
+
+# Adversarially augmented MM-BrowseComp
+.venv/bin/python run_eval.py \
+  --sage-v2 --run-mm-browsecomp \
+  --position-mode random \
+  --seeds 0 1 2 \
+  --out results/sagemem_mm_browsecomp.json
+```
+
+### Optional Calibration
+
+```bash
+# Calibrate trust after collecting a clean/validated run
+.venv/bin/python scripts/calibrate_trust.py \
+  --results results/sagemem_main.json \
+  --output configs/calibrated_trust_config.json
+
+# Re-run with calibrated config
+.venv/bin/python run_eval.py \
+  --sage-v2 \
+  --config-path configs/calibrated_trust_config.json \
+  --out results/sagemem_calibrated.json
+```
+
+### Additional Commands
+
+```bash
+# VPI without the behavioral judge
+.venv/bin/python run_eval.py \
+  --attacks visual_prompt_injection \
+  --sage-v2 \
+  --disable-cross-topic \
+  --out results/vpi_attack_results.json
+```
 
 ### Main LoCoMo multimodal table
 ```bash

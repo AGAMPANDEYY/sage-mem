@@ -40,7 +40,7 @@ from typing import Optional
 
 
 _GUARD_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
-_GUARD_MODEL_OAI_DEFAULT = "gpt-4o-mini"
+_GUARD_MODEL_OAI_DEFAULT = "gpt-5-mini"
 
 _CLASSIFY_SYSTEM = """\
 You are a stateless write-time security guard for an AI memory system.
@@ -113,12 +113,22 @@ class WriteTimeGuard:
     _quarantine_count: int = field(default=0, repr=False)
     _directive_count: int = field(default=0, repr=False)
     _client: object = field(default=None, repr=False)
-    _backend: str = field(default="anthropic", repr=False)
+    _backend: str = field(default="openai", repr=False)
 
     def __post_init__(self):
-        # Try Anthropic first, then OpenAI as fallback
+        # Try OpenAI first, then Anthropic as fallback
         anth_key = self.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         oai_key = os.environ.get("OPENAI_API_KEY", "")
+        if oai_key:
+            try:
+                from openai import OpenAI as _OAI
+                self._client = _OAI(api_key=oai_key)
+                self._backend = "openai"
+                if self.model == _GUARD_MODEL_DEFAULT:
+                    self.model = _GUARD_MODEL_OAI_DEFAULT
+                return
+            except ImportError:
+                raise ImportError("pip install openai  (needed for WriteTimeGuard with OpenAI backend)")
         if anth_key:
             try:
                 import anthropic as _a
@@ -126,21 +136,12 @@ class WriteTimeGuard:
                 self._backend = "anthropic"
                 if self.model == _GUARD_MODEL_OAI_DEFAULT:
                     self.model = _GUARD_MODEL_DEFAULT
+                return
             except ImportError:
                 anth_key = ""
-        if not anth_key:
-            if not oai_key:
-                raise ValueError(
-                    "WriteTimeGuard requires ANTHROPIC_API_KEY or OPENAI_API_KEY"
-                )
-            try:
-                from openai import OpenAI as _OAI
-                self._client = _OAI(api_key=oai_key)
-                self._backend = "openai"
-                if self.model == _GUARD_MODEL_DEFAULT:
-                    self.model = _GUARD_MODEL_OAI_DEFAULT
-            except ImportError:
-                raise ImportError("pip install openai  (needed for WriteTimeGuard with OpenAI backend)")
+        raise ValueError(
+            "WriteTimeGuard requires OPENAI_API_KEY or ANTHROPIC_API_KEY"
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -405,7 +406,7 @@ class WriteTimeGuard:
 def build_guard(hp: dict) -> Optional["WriteTimeGuard"]:
     """
     Build a WriteTimeGuard from hp dict if enabled.
-    Tries ANTHROPIC_API_KEY first, falls back to OPENAI_API_KEY.
+    Tries OPENAI_API_KEY first, falls back to ANTHROPIC_API_KEY.
     Returns None if `enable_llm_write_guard` is False or no API key available.
     """
     if not hp.get("enable_llm_write_guard", False):
