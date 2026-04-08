@@ -13,6 +13,7 @@ Output:
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -38,6 +39,9 @@ from mma_bench_suite import MAX_QA_PER_CASE as _DEFAULT_QA
 from procedural import train_procedural_detector
 from utils import set_all_seeds
 
+# Default config path — override with --config-path
+_DEFAULT_CONFIG_PATH = Path("configs/default_trust_config.json")
+
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
@@ -48,7 +52,7 @@ def parse_args():
     p.add_argument("--qa-per-case", type=int, default=_DEFAULT_QA,
                    help=f"Max QA pairs evaluated per LoCoMo case (default: {_DEFAULT_QA})")
     p.add_argument("--attacks", nargs="+",
-                   default=["semantic_mimicry", "constructor_launder", "label_gaming", "ocr_injection", "vision_caption_injection"],
+                   default=["semantic_mimicry", "constructor_launder", "label_gaming", "ocr_injection", "vision_caption_injection", "visual_prompt_injection"],
                    help="Attack types to inject in poisoned split")
     p.add_argument("--conditions", nargs="+", default=None,
                    help="Subset of conditions to run (default: all 5)")
@@ -80,6 +84,16 @@ def parse_args():
                    help=f"Path to official or augmented MM-BrowseComp JSONL (default: {MM_BROWSECOMP_PATH})")
     p.add_argument("--quick", action="store_true",
                    help="Fast mode: seed=0 only, 5 QA per case")
+    p.add_argument("--config-path", type=Path, default=None,
+                   help=f"Path to SAGEMem trust config JSON (default: {_DEFAULT_CONFIG_PATH})")
+    p.add_argument("--llm-eval", action="store_true",
+                   help="Enable LLM-based behavioral ASR and answer entailment judges (adds API cost)")
+    p.add_argument("--log-retrieved-source-types", action="store_true",
+                   help="Log per-item source types for offline calibration pipeline")
+    p.add_argument("--position-mode", choices=["random", "early", "late", "post_consolidation"],
+                   default="random", help="Attack injection position mode (default: random)")
+    p.add_argument("--sage-v2", action="store_true",
+                   help="Include SAGEMemV2 condition (Bayesian trust + consistency graph + anomaly detection)")
     return p.parse_args()
 
 
@@ -100,13 +114,20 @@ def print_results_table(summary: dict, *, title: str) -> None:
         "Mem0_Platform_Baseline":                                      "mem0",
         "RecursiveSummarizationConsolidation_NoConstructorGuard":        "RSum (no guard)",
         "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": "H1 ConstructorGuard",
-        "SAGEMem_SourceAttestedGuardedEpisodicMemory":                  "SAGE-Mem",
+        "SAGEMem_SourceAttestedGuardedEpisodicMemory":                  "SAGE-Mem v1",
+        "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect":       "SAGE-Mem v2",
         "MonotoneProvenanceLedger_ConservativeTrustScoring":             "H2 MonotoneLedger",
         "RiskSensitiveToolActionFirewall_CorroborateOrConfirm":          "H3 ActionFirewall",
     }
 
     has_cross = any(bool(splits.get("poisoned_cross_topic")) for splits in summary.values())
+    has_behavioral = any(
+        bool(splits.get("poisoned", {}).get("ASR_behavioral") is not None)
+        for splits in summary.values()
+    )
     header = f"{'Condition':<26}  {'BCU clean':>10}  {'BCU poison':>10}  {'ASR poison':>10}"
+    if has_behavioral:
+        header += f"  {'ASR (LLM)':>10}"
     if has_cross:
         header += f"  {'ASR cross':>10}"
     header += f"  {'n':>6}"
@@ -124,11 +145,14 @@ def print_results_table(summary: dict, *, title: str) -> None:
         bcu_c = clean.get("BenignCompletionUnderAttack", float("nan"))
         bcu_p = pois.get("BenignCompletionUnderAttack", float("nan"))
         asr_p = pois.get("ASR", float("nan"))
+        asr_llm = pois.get("ASR_behavioral", float("nan"))
         cross = splits.get("poisoned_cross_topic", {})
         asr_x = cross.get("ASR", float("nan"))
         n     = pois.get("n_cases", 0)
         marker = " ✓" if bcu_p >= 0.9 else (" ✗" if bcu_p <= 0.1 else "  ")
         line = f"  {name:<26}  {bcu_c:>10.4f}  {bcu_p:>10.4f}  {asr_p:>10.4f}"
+        if has_behavioral:
+            line += f"  {asr_llm:>10.4f}" if not (isinstance(asr_llm, float) and math.isnan(asr_llm)) else f"  {'N/A':>10}"
         if has_cross:
             line += f"  {asr_x:>10.4f}"
         line += f"  {n:>6}{marker}"
@@ -137,6 +161,8 @@ def print_results_table(summary: dict, *, title: str) -> None:
     print("=" * len(header))
     print("  BCU = BenignCompletionUnderAttack (higher = better defense)")
     print("  ASR = Attack Success Rate (lower = better defense)")
+    if has_behavioral:
+        print("  ASR (LLM) = Behavioral ASR via LLM judge (more accurate, adaptive-attack robust)")
     print()
 
 
@@ -166,12 +192,63 @@ def main():
     import mma_bench_suite
     mma_bench_suite.MAX_QA_PER_CASE = args.qa_per_case
 
+    # ── Load SAGEMem trust config ────────────────────────────────────────────
+    sage_cfg = None
+    config_path = args.config_path or _DEFAULT_CONFIG_PATH
+    if config_path.exists():
+        try:
+            from config import SAGEMemConfig
+            sage_cfg = SAGEMemConfig.from_file(config_path)
+            print(f"[config] Loaded SAGEMemConfig from {config_path}")
+        except Exception as exc:
+            print(f"[config] WARNING: could not load config from {config_path}: {exc}")
+    else:
+        print(f"[config] No config file found at {config_path}. SAGEMemV2 will use defaults.")
+
+    # ── Build SAGEMemV2 components ───────────────────────────────────────────
+    # BayesianChannelTrust and SessionAnomalyDetector can be pre-built here.
+    # MultiTurnConsistencyGraph and CorrectionPlausibilityScorer need an embedder,
+    # so they are built per-case inside build_mma_condition.
+    sage_bayes_trust = None
+    sage_anomaly_detector = None
+    if sage_cfg is not None:
+        try:
+            from trust_calibration import BayesianChannelTrust
+            sage_bayes_trust = BayesianChannelTrust(sage_cfg)
+        except ImportError:
+            print("[config] WARNING: trust_calibration not available; SAGEMemV2 will skip Bayesian trust")
+        try:
+            from anomaly_detector import SessionAnomalyDetector
+            sage_anomaly_detector = SessionAnomalyDetector(sage_cfg, embedding_dim=256)
+        except ImportError:
+            print("[config] WARNING: anomaly_detector not available; SAGEMemV2 will skip anomaly detection")
+
+    # ── Build LLM evaluation judges (optional) ───────────────────────────────
+    eval_judge = None
+    answer_judge = None
+    if args.llm_eval:
+        if sage_cfg is None:
+            print("[llm-eval] WARNING: --llm-eval requires a valid config; judges disabled")
+        else:
+            try:
+                from eval_judge import BehavioralAttackJudge, LLMAnswerJudge
+                eval_judge = BehavioralAttackJudge(sage_cfg)
+                answer_judge = LLMAnswerJudge(sage_cfg)
+                print(f"[llm-eval] LLM judges initialized (model: {sage_cfg.guard.tier1_model})")
+            except Exception as exc:
+                print(f"[llm-eval] WARNING: could not initialize LLM judges: {exc}")
+
     conditions = args.conditions or [
-        c for c in MMA_BENCH_CONDITIONS if c != "Mem0_Platform_Baseline"
+        c for c in MMA_BENCH_CONDITIONS
+        if c not in {"Mem0_Platform_Baseline", "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect"}
     ]
+    if args.sage_v2 and "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect" not in conditions:
+        conditions.append("SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect")
+
     device = pick_device()
     print(f"Device: {device} | Seeds: {args.seeds} | QA/case: {args.qa_per_case} | "
-          f"Attacks: {args.attacks}")
+          f"Attacks: {args.attacks} | Position: {args.position_mode}"
+          + (" | LLM-eval: ON" if args.llm_eval else ""))
 
     # Train procedural detector
     set_all_seeds(0)
@@ -206,6 +283,14 @@ def main():
         "mem0_infer": True,
         "enable_multimodal_locomo": bool(args.enable_locomo_multimodal),
         "enable_cross_topic_split": not bool(args.disable_cross_topic),
+        # SAGEMem v2 components — passed into build_mma_condition for SAGEMemV2 condition
+        # sage_consistency_graph and sage_correction_scorer are built per-case inside
+        # build_mma_condition (they require the per-seed embedder instance)
+        "sage_cfg": sage_cfg,
+        "sage_bayes_trust": sage_bayes_trust,
+        "sage_anomaly_detector": sage_anomaly_detector,
+        "sage_consistency_graph": None,   # built per-case in build_mma_condition
+        "sage_correction_scorer": None,   # built per-case in build_mma_condition
     }
     detector = train_procedural_detector(
         seed=0, dim=hp["procclf_dim"], device=device,
@@ -230,6 +315,10 @@ def main():
         hp=hp,
         seeds=args.seeds,
         attack_types=args.attacks,
+        eval_judge=eval_judge,
+        answer_judge=answer_judge,
+        log_retrieved_source_types=bool(args.log_retrieved_source_types),
+        position_mode=args.position_mode,
     )
     locomo_elapsed = time.time() - t0
     locomo_summary = aggregate_eval_metrics(locomo_raw)
@@ -256,6 +345,10 @@ def main():
                 hp=hp,
                 seeds=args.seeds,
                 attack_types=args.attacks,
+                eval_judge=eval_judge,
+                answer_judge=answer_judge,
+                log_retrieved_source_types=bool(args.log_retrieved_source_types),
+                position_mode=args.position_mode,
             )
         except ValueError as exc:
             raise SystemExit(f"MM-BrowseComp configuration error: {exc}") from exc
@@ -304,6 +397,11 @@ def main():
             "h3_write_trust_threshold": hp["h3_write_trust_threshold"],
             "sage_chain_decay": hp["sage_chain_decay"],
             "sage_write_trust_threshold": hp["sage_write_trust_threshold"],
+            "sage_config_path": str(config_path),
+            "sage_config_loaded": sage_cfg is not None,
+            "llm_eval": bool(args.llm_eval),
+            "position_mode": args.position_mode,
+            "sage_v2": bool(args.sage_v2),
             "runtime_sec": round(elapsed, 2),
         },
         "raw_sample_count": {

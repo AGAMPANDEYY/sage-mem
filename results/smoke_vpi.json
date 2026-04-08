@@ -35,15 +35,11 @@
             "ASR": 0.0,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
+                "n_cases": 13,
                 "ASR": 0.0
               },
               "cross_topic": {
                 "n_cases": 2,
-                "ASR": 0.0
-              },
-              "mixed": {
-                "n_cases": 1,
                 "ASR": 0.0
               }
             }
@@ -51,7 +47,7 @@
         },
         "MMA_RetrieveTimeReliabilityScoring_Baseline": {
           "clean": {
-            "answer_consistent_rate": 0.6667,
+            "answer_consistent_rate": 0.8,
             "attack_survival_rate": 0.0,
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
@@ -62,12 +58,12 @@
             "derived_memory_corruption_per_case": 0.0,
             "derived_memory_corruption_rate": 0.0,
             "n_cases": 15,
-            "BenignCompletionUnderAttack": 0.6667,
+            "BenignCompletionUnderAttack": 0.8,
             "ASR": 0.0,
             "topic_breakdown": {}
           },
           "poisoned": {
-            "answer_consistent_rate": 0.6667,
+            "answer_consistent_rate": 0.8,
             "attack_survival_rate": 0.2,
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
@@ -78,20 +74,16 @@
             "derived_memory_corruption_per_case": 0.0,
             "derived_memory_corruption_rate": 0.0,
             "n_cases": 15,
-            "BenignCompletionUnderAttack": 0.5333,
+            "BenignCompletionUnderAttack": 0.64,
             "ASR": 0.2,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
-                "ASR": 0.1667
+                "n_cases": 13,
+                "ASR": 0.1538
               },
               "cross_topic": {
                 "n_cases": 2,
                 "ASR": 0.5
-              },
-              "mixed": {
-                "n_cases": 1,
-                "ASR": 0.0
               }
             }
           }
@@ -129,15 +121,11 @@
             "ASR": 0.0,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
+                "n_cases": 13,
                 "ASR": 0.0
               },
               "cross_topic": {
                 "n_cases": 2,
-                "ASR": 0.0
-              },
-              "mixed": {
-                "n_cases": 1,
                 "ASR": 0.0
               }
             }
@@ -166,7 +154,7 @@
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
             "conflict_quarantine_per_case": 0.0,
-            "write_quarantine_per_case": 5.0,
+            "write_quarantine_per_case": 2.0,
             "multimodal_attack_retrieval_rate": 0.0,
             "aligned_multimodal_retrieval_rate": 0.0,
             "derived_memory_corruption_per_case": 0.0,
@@ -176,15 +164,11 @@
             "ASR": 0.0,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
+                "n_cases": 13,
                 "ASR": 0.0
               },
               "cross_topic": {
                 "n_cases": 2,
-                "ASR": 0.0
-              },
-              "mixed": {
-                "n_cases": 1,
                 "ASR": 0.0
               }
             }
@@ -213,7 +197,7 @@
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
             "conflict_quarantine_per_case": 0.0,
-            "write_quarantine_per_case": 5.0,
+            "write_quarantine_per_case": 2.0,
             "multimodal_attack_retrieval_rate": 0.0,
             "aligned_multimodal_retrieval_rate": 0.0,
             "derived_memory_corruption_per_case": 0.0,
@@ -223,15 +207,11 @@
             "ASR": 0.0,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
+                "n_cases": 13,
                 "ASR": 0.0
               },
               "cross_topic": {
                 "n_cases": 2,
-                "ASR": 0.0
-              },
-              "mixed": {
-                "n_cases": 1,
                 "ASR": 0.0
               }
             }
@@ -255,30 +235,26 @@
             "topic_breakdown": {}
           },
           "poisoned": {
-            "answer_consistent_rate": 0.5333,
+            "answer_consistent_rate": 0.4667,
             "attack_survival_rate": 0.0,
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
             "conflict_quarantine_per_case": 0.0,
-            "write_quarantine_per_case": 1.0,
+            "write_quarantine_per_case": 0.0,
             "multimodal_attack_retrieval_rate": 0.0,
             "aligned_multimodal_retrieval_rate": 0.0,
             "derived_memory_corruption_per_case": 0.0,
             "derived_memory_corruption_rate": 0.0,
             "n_cases": 15,
-            "BenignCompletionUnderAttack": 0.5333,
+            "BenignCompletionUnderAttack": 0.4667,
             "ASR": 0.0,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
+                "n_cases": 13,
                 "ASR": 0.0
               },
               "cross_topic": {
                 "n_cases": 2,
-                "ASR": 0.0
-              },
-              "mixed": {
-                "n_cases": 1,
                 "ASR": 0.0
               }
             }
@@ -307,7 +283,7 @@
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
             "conflict_quarantine_per_case": 0.0,
-            "write_quarantine_per_case": 3.0,
+            "write_quarantine_per_case": 0.0,
             "multimodal_attack_retrieval_rate": 0.0,
             "aligned_multimodal_retrieval_rate": 0.0,
             "derived_memory_corruption_per_case": 0.0,
@@ -317,15 +293,11 @@
             "ASR": 0.0,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
+                "n_cases": 13,
                 "ASR": 0.0
               },
               "cross_topic": {
                 "n_cases": 2,
-                "ASR": 0.0
-              },
-              "mixed": {
-                "n_cases": 1,
                 "ASR": 0.0
               }
             }
@@ -333,46 +305,42 @@
         },
         "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect": {
           "clean": {
-            "answer_consistent_rate": 0.3333,
+            "answer_consistent_rate": 0.6,
             "attack_survival_rate": 0.0,
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
             "conflict_quarantine_per_case": 0.0,
-            "write_quarantine_per_case": 13.6667,
+            "write_quarantine_per_case": 2.6667,
             "multimodal_attack_retrieval_rate": 0.0,
             "aligned_multimodal_retrieval_rate": 0.0,
             "derived_memory_corruption_per_case": 0.0,
             "derived_memory_corruption_rate": 0.0,
             "n_cases": 15,
-            "BenignCompletionUnderAttack": 0.3333,
+            "BenignCompletionUnderAttack": 0.6,
             "ASR": 0.0,
             "topic_breakdown": {}
           },
           "poisoned": {
-            "answer_consistent_rate": 0.5333,
+            "answer_consistent_rate": 0.6,
             "attack_survival_rate": 0.0,
             "answered_rate": 1.0,
             "trust_escalation_per_case": 0.0,
             "conflict_quarantine_per_case": 0.0,
-            "write_quarantine_per_case": 513.3333,
+            "write_quarantine_per_case": 4.0,
             "multimodal_attack_retrieval_rate": 0.0,
             "aligned_multimodal_retrieval_rate": 0.0,
             "derived_memory_corruption_per_case": 0.0,
             "derived_memory_corruption_rate": 0.0,
             "n_cases": 15,
-            "BenignCompletionUnderAttack": 0.5333,
+            "BenignCompletionUnderAttack": 0.6,
             "ASR": 0.0,
             "topic_breakdown": {
               "same_topic": {
-                "n_cases": 12,
+                "n_cases": 13,
                 "ASR": 0.0
               },
               "cross_topic": {
                 "n_cases": 2,
-                "ASR": 0.0
-              },
-              "mixed": {
-                "n_cases": 1,
                 "ASR": 0.0
               }
             }
@@ -449,15 +417,11 @@
         "ASR": 0.0,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
+            "n_cases": 13,
             "ASR": 0.0
           },
           "cross_topic": {
             "n_cases": 2,
-            "ASR": 0.0
-          },
-          "mixed": {
-            "n_cases": 1,
             "ASR": 0.0
           }
         }
@@ -465,7 +429,7 @@
     },
     "MMA_RetrieveTimeReliabilityScoring_Baseline": {
       "clean": {
-        "answer_consistent_rate": 0.6667,
+        "answer_consistent_rate": 0.8,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
@@ -476,12 +440,12 @@
         "derived_memory_corruption_per_case": 0.0,
         "derived_memory_corruption_rate": 0.0,
         "n_cases": 15,
-        "BenignCompletionUnderAttack": 0.6667,
+        "BenignCompletionUnderAttack": 0.8,
         "ASR": 0.0,
         "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.6667,
+        "answer_consistent_rate": 0.8,
         "attack_survival_rate": 0.2,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
@@ -492,20 +456,16 @@
         "derived_memory_corruption_per_case": 0.0,
         "derived_memory_corruption_rate": 0.0,
         "n_cases": 15,
-        "BenignCompletionUnderAttack": 0.5333,
+        "BenignCompletionUnderAttack": 0.64,
         "ASR": 0.2,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
-            "ASR": 0.1667
+            "n_cases": 13,
+            "ASR": 0.1538
           },
           "cross_topic": {
             "n_cases": 2,
             "ASR": 0.5
-          },
-          "mixed": {
-            "n_cases": 1,
-            "ASR": 0.0
           }
         }
       }
@@ -543,15 +503,11 @@
         "ASR": 0.0,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
+            "n_cases": 13,
             "ASR": 0.0
           },
           "cross_topic": {
             "n_cases": 2,
-            "ASR": 0.0
-          },
-          "mixed": {
-            "n_cases": 1,
             "ASR": 0.0
           }
         }
@@ -580,7 +536,7 @@
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "conflict_quarantine_per_case": 0.0,
-        "write_quarantine_per_case": 5.0,
+        "write_quarantine_per_case": 2.0,
         "multimodal_attack_retrieval_rate": 0.0,
         "aligned_multimodal_retrieval_rate": 0.0,
         "derived_memory_corruption_per_case": 0.0,
@@ -590,15 +546,11 @@
         "ASR": 0.0,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
+            "n_cases": 13,
             "ASR": 0.0
           },
           "cross_topic": {
             "n_cases": 2,
-            "ASR": 0.0
-          },
-          "mixed": {
-            "n_cases": 1,
             "ASR": 0.0
           }
         }
@@ -627,7 +579,7 @@
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "conflict_quarantine_per_case": 0.0,
-        "write_quarantine_per_case": 5.0,
+        "write_quarantine_per_case": 2.0,
         "multimodal_attack_retrieval_rate": 0.0,
         "aligned_multimodal_retrieval_rate": 0.0,
         "derived_memory_corruption_per_case": 0.0,
@@ -637,15 +589,11 @@
         "ASR": 0.0,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
+            "n_cases": 13,
             "ASR": 0.0
           },
           "cross_topic": {
             "n_cases": 2,
-            "ASR": 0.0
-          },
-          "mixed": {
-            "n_cases": 1,
             "ASR": 0.0
           }
         }
@@ -669,30 +617,26 @@
         "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.5333,
+        "answer_consistent_rate": 0.4667,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "conflict_quarantine_per_case": 0.0,
-        "write_quarantine_per_case": 1.0,
+        "write_quarantine_per_case": 0.0,
         "multimodal_attack_retrieval_rate": 0.0,
         "aligned_multimodal_retrieval_rate": 0.0,
         "derived_memory_corruption_per_case": 0.0,
         "derived_memory_corruption_rate": 0.0,
         "n_cases": 15,
-        "BenignCompletionUnderAttack": 0.5333,
+        "BenignCompletionUnderAttack": 0.4667,
         "ASR": 0.0,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
+            "n_cases": 13,
             "ASR": 0.0
           },
           "cross_topic": {
             "n_cases": 2,
-            "ASR": 0.0
-          },
-          "mixed": {
-            "n_cases": 1,
             "ASR": 0.0
           }
         }
@@ -721,7 +665,7 @@
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "conflict_quarantine_per_case": 0.0,
-        "write_quarantine_per_case": 3.0,
+        "write_quarantine_per_case": 0.0,
         "multimodal_attack_retrieval_rate": 0.0,
         "aligned_multimodal_retrieval_rate": 0.0,
         "derived_memory_corruption_per_case": 0.0,
@@ -731,15 +675,11 @@
         "ASR": 0.0,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
+            "n_cases": 13,
             "ASR": 0.0
           },
           "cross_topic": {
             "n_cases": 2,
-            "ASR": 0.0
-          },
-          "mixed": {
-            "n_cases": 1,
             "ASR": 0.0
           }
         }
@@ -747,46 +687,42 @@
     },
     "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect": {
       "clean": {
-        "answer_consistent_rate": 0.3333,
+        "answer_consistent_rate": 0.6,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "conflict_quarantine_per_case": 0.0,
-        "write_quarantine_per_case": 13.6667,
+        "write_quarantine_per_case": 2.6667,
         "multimodal_attack_retrieval_rate": 0.0,
         "aligned_multimodal_retrieval_rate": 0.0,
         "derived_memory_corruption_per_case": 0.0,
         "derived_memory_corruption_rate": 0.0,
         "n_cases": 15,
-        "BenignCompletionUnderAttack": 0.3333,
+        "BenignCompletionUnderAttack": 0.6,
         "ASR": 0.0,
         "topic_breakdown": {}
       },
       "poisoned": {
-        "answer_consistent_rate": 0.5333,
+        "answer_consistent_rate": 0.6,
         "attack_survival_rate": 0.0,
         "answered_rate": 1.0,
         "trust_escalation_per_case": 0.0,
         "conflict_quarantine_per_case": 0.0,
-        "write_quarantine_per_case": 513.3333,
+        "write_quarantine_per_case": 4.0,
         "multimodal_attack_retrieval_rate": 0.0,
         "aligned_multimodal_retrieval_rate": 0.0,
         "derived_memory_corruption_per_case": 0.0,
         "derived_memory_corruption_rate": 0.0,
         "n_cases": 15,
-        "BenignCompletionUnderAttack": 0.5333,
+        "BenignCompletionUnderAttack": 0.6,
         "ASR": 0.0,
         "topic_breakdown": {
           "same_topic": {
-            "n_cases": 12,
+            "n_cases": 13,
             "ASR": 0.0
           },
           "cross_topic": {
             "n_cases": 2,
-            "ASR": 0.0
-          },
-          "mixed": {
-            "n_cases": 1,
             "ASR": 0.0
           }
         }
@@ -799,11 +735,6 @@
     ],
     "qa_per_case": 5,
     "attack_types": [
-      "semantic_mimicry",
-      "constructor_launder",
-      "label_gaming",
-      "ocr_injection",
-      "vision_caption_injection",
       "visual_prompt_injection"
     ],
     "conditions": [
@@ -839,7 +770,7 @@
     "llm_eval": false,
     "position_mode": "random",
     "sage_v2": true,
-    "runtime_sec": 5.15
+    "runtime_sec": 8.0
   },
   "raw_sample_count": {
     "ShortContext_NoLongTermMemory_Baseline": {

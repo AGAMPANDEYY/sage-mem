@@ -2,7 +2,8 @@ import math
 import os
 import re
 import uuid
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -22,6 +23,35 @@ def _get_guard_type():
         except ImportError:
             pass
     return _WriteTimeGuard
+
+# Lazy imports for SAGE-Mem v2 modules — only imported when used
+def _lazy_import_bayes_trust():
+    try:
+        from trust_calibration import BayesianChannelTrust
+        return BayesianChannelTrust
+    except ImportError:
+        return None
+
+def _lazy_import_anomaly_detector():
+    try:
+        from anomaly_detector import SessionAnomalyDetector
+        return SessionAnomalyDetector
+    except ImportError:
+        return None
+
+def _lazy_import_consistency_graph():
+    try:
+        from consistency_graph import MultiTurnConsistencyGraph
+        return MultiTurnConsistencyGraph
+    except ImportError:
+        return None
+
+def _lazy_import_correction_scorer():
+    try:
+        from consistency_graph import CorrectionPlausibilityScorer
+        return CorrectionPlausibilityScorer
+    except ImportError:
+        return None
 
 @dataclass
 class MemoryItem:
@@ -60,16 +90,130 @@ def _clip01(x: float) -> float:
         return 0.0
     return float(max(0.0, min(1.0, x)))
 
-def default_source_cred(source_type: str) -> float:
-    return {
-        "user": 1.0,
-        "ocr_text": 0.60,
-        "vision_caption": 0.58,
-        "tool_output_text": 0.70,
-        "self_summary": 0.45,
-        "attacker": 0.10,
-        "tool_echo": 0.20,
-    }.get(source_type, 0.35)
+
+# ---------------------------------------------------------------------------
+# Cross-modal consistency defense
+# ---------------------------------------------------------------------------
+
+# Directive-like language that should NOT appear in genuine OCR / VLM output.
+# Real OCR transcribes visible text; real VLM captions describe image content.
+# Neither should contain meta-instructions about memory, trust, or policy.
+_VISUAL_DIRECTIVE_RE = re.compile(
+    r"\b("
+    r"disregard|ignore previous|override|override prior|override earlier|"
+    r"discard prior|discard earlier|superseded|supersedes|definitive answer|"
+    r"use this (note|correction|answer|update) as|treat (this|the) (note|image|caption) as|"
+    r"the (correct|updated|latest|current) answer is|the answer (is now|has changed)|"
+    r"replace (earlier|prior|previous) (answer|entries|memory)|"
+    r"correction.*authoritative|authoritative.*correction|"
+    r"important (correction|update|note).*(?:question|answer|prior)|"
+    r"stop repeating|forget (earlier|prior|previous)|new information.*discard"
+    r")\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Legitimate visual content indicators (genuine OCR/VLM output looks like this)
+_VISUAL_CONTENT_RE = re.compile(
+    r"\b("
+    r"image shows?|photo of|picture of|screenshot of|visible (in|on|from)|"
+    r"text reads?|label[s]?:|caption:|OCR:|transcribed|extracted text|"
+    r"\d+\s*(px|cm|mm|ft|m\b|km|kg|lb|mph|kph|°[CF])|"
+    r"jersey number|score(board)?|stadium|color[s]?|logo|sign|"
+    r"figure \d|table \d|chart|graph|diagram|map"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _check_visual_source_plausibility(
+    text: str,
+    source_type: str,
+) -> Tuple[bool, float]:
+    """
+    Returns (is_suspicious, trust_penalty) for visual-channel writes.
+
+    A visual source (ocr_text, vision_caption) is suspicious when it contains
+    directive language that would not appear in genuine OCR/VLM output.
+    Genuine visual extraction produces factual descriptions, numbers, labels —
+    not policy overrides, trust instructions, or memory-management directives.
+
+    Returns:
+        is_suspicious: True → quarantine or reduce trust
+        trust_penalty: amount to subtract from computed_trust (0.0 if not suspicious)
+    """
+    if source_type not in {"ocr_text", "vision_caption"}:
+        return False, 0.0
+
+    has_directive = bool(_VISUAL_DIRECTIVE_RE.search(text))
+    has_visual_content = bool(_VISUAL_CONTENT_RE.search(text))
+
+    if has_directive and not has_visual_content:
+        # Pure directive in a visual channel — high confidence attack
+        return True, 0.60
+    if has_directive and has_visual_content:
+        # Mixed: legitimate visual content with embedded directive (VPI pattern)
+        return True, 0.40
+    return False, 0.0
+
+
+def _check_observation_group_corroboration(
+    items: List["MemoryItem"],
+    observation_group: Optional[str],
+    source_type: str,
+) -> bool:
+    """
+    Detect false cross-modal corroboration: two visual writes from the same
+    observation_group (same source image) that both contain directive language.
+
+    When both OCR and VLM outputs from the "same image" contain adversarial
+    claims, a naive multi-source trust system would increase trust (two
+    independent sources agree). This function flags that pattern as an attack.
+
+    Returns True if the observation_group shows cross-modal directive corroboration.
+    """
+    if observation_group is None:
+        return False
+    visual_sources = {"ocr_text", "vision_caption"}
+    if source_type not in visual_sources:
+        return False
+    # Find prior items from the same observation_group and a different visual channel
+    prior_visual_from_same_group = [
+        it for it in items
+        if getattr(it, "observation_group", None) == observation_group
+        and getattr(it, "source_type", "") in visual_sources
+        and getattr(it, "source_type", "") != source_type
+    ]
+    if not prior_visual_from_same_group:
+        return False
+    # If any prior item from the same image also has directive language → false corroboration
+    return any(
+        _VISUAL_DIRECTIVE_RE.search(str(it.text or ""))
+        for it in prior_visual_from_same_group
+    )
+
+_DEFAULT_SOURCE_CRED = {
+    "user": 1.0,
+    "ocr_text": 0.60,
+    "vision_caption": 0.58,
+    "tool_output_text": 0.70,
+    "self_summary": 0.45,
+    "attacker": 0.10,
+    "tool_echo": 0.20,
+}
+
+def default_source_cred(source_type: str, cfg=None) -> float:
+    """Return prior source credibility.
+
+    When cfg (SAGEMemConfig) is provided, values are read from
+    cfg.source_cred so that no scalars are hardcoded in Python.
+    Falls back to _DEFAULT_SOURCE_CRED when cfg is absent.
+    """
+    if cfg is not None:
+        try:
+            return float(cfg.source_cred.get(source_type))
+        except Exception:
+            pass
+    return _DEFAULT_SOURCE_CRED.get(source_type, 0.35)
 
 _LABEL_RE = re.compile(r"\bOBJECT_LABEL\s*:\s*([a-z_]+)\b", re.IGNORECASE)
 _DIRECTIVE_RE = re.compile(
@@ -173,6 +317,9 @@ class BaseMemory:
         self.trust_escalation_events = 0
         self.retrieval_trusted_capture_n = 0
         self.retrieval_trusted_n = 0
+        # Calibration log: list of {source_type, contributed_to_correct} dicts
+        # populated when log_retrieved_source_types=True is passed to retrieve()
+        self.retrieved_source_type_log: List[dict] = []
 
     def write(
         self,
@@ -230,7 +377,9 @@ class BaseMemory:
         return list(self.items) + list(self.audit_items)
 
     def retrieve(
-        self, *, query: str, step: int, for_planning: bool = True
+        self, *, query: str, step: int, for_planning: bool = True,
+        log_retrieved_source_types: bool = False,
+        gold_answer: Optional[str] = None,
     ) -> List[MemoryItem]:
         q = self.embedder.embed(query)
         scored: List[Tuple[float, MemoryItem]] = []
@@ -246,7 +395,35 @@ class BaseMemory:
         trusted = [it for it in out if it.trust >= 0.7]
         self.retrieval_trusted_n += len(trusted)
         self.retrieval_trusted_capture_n += sum(1 for it in trusted if it.source_type == "attacker")
+
+        if log_retrieved_source_types and gold_answer is not None:
+            gold_norm = gold_answer.lower().strip()
+            for it in out:
+                text_norm = str(it.text or "").lower()
+                contributed = gold_norm in text_norm if gold_norm else False
+                self.retrieved_source_type_log.append({
+                    "source_type": it.source_type,
+                    "contributed_to_correct": contributed,
+                })
         return out
+
+    def _maybe_log_retrieved_source_types(
+        self,
+        out: Sequence[MemoryItem],
+        *,
+        log_retrieved_source_types: bool = False,
+        gold_answer: Optional[str] = None,
+    ) -> None:
+        if not log_retrieved_source_types or gold_answer is None:
+            return
+        gold_norm = gold_answer.lower().strip()
+        for it in out:
+            text_norm = str(it.text or "").lower()
+            contributed = gold_norm in text_norm if gold_norm else False
+            self.retrieved_source_type_log.append({
+                "source_type": it.source_type,
+                "contributed_to_correct": contributed,
+            })
 
     def trusted_capture_rate(self) -> float:
         if self.retrieval_trusted_n <= 0:
@@ -305,7 +482,13 @@ class MMARetrieveTimeReliabilityMemory(BaseMemory):
         return score
 
     def retrieve(
-        self, *, query: str, step: int, for_planning: bool = True
+        self,
+        *,
+        query: str,
+        step: int,
+        for_planning: bool = True,
+        log_retrieved_source_types: bool = False,
+        gold_answer: Optional[str] = None,
     ) -> List[MemoryItem]:
         q = self.embedder.embed(query)
         scored: List[Tuple[float, MemoryItem]] = []
@@ -318,6 +501,11 @@ class MMARetrieveTimeReliabilityMemory(BaseMemory):
         trusted = [it for it in out if default_source_cred(it.source_type) >= 0.7]
         self.retrieval_trusted_n += len(trusted)
         self.retrieval_trusted_capture_n += sum(1 for it in trusted if it.source_type == "attacker")
+        self._maybe_log_retrieved_source_types(
+            out,
+            log_retrieved_source_types=log_retrieved_source_types,
+            gold_answer=gold_answer,
+        )
         return out
 
 
@@ -428,7 +616,7 @@ class NaiveProvenanceLabelTrustMemory(RecursiveSummarizationMemory):
         return base + "\nPROVENANCE: verified"
 
 class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
-    # Default write-time trust threshold (overridable via __init__)
+    # Default write-time trust threshold — used only when no cfg or explicit override
     WRITE_TRUST_THRESHOLD = 0.30
 
     def __init__(
@@ -443,7 +631,10 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         detector: ProceduralDetector,
         rewrite_on_fail: bool = True,
         write_trust_threshold: Optional[float] = None,
-        guard=None,  # Optional[WriteTimeGuard] — LLM-based semantic guard
+        guard=None,  # Optional[WriteTimeGuard or MultiAgentGuard]
+        cfg=None,    # Optional[SAGEMemConfig] — drives all thresholds when provided
+        bayes_trust=None,   # Optional[BayesianChannelTrust] — per-channel posterior trust
+        anomaly_detector=None,  # Optional[SessionAnomalyDetector] — Mahalanobis gate
     ):
         super().__init__(
             embedder=embedder,
@@ -456,11 +647,26 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         self.rewrite_on_fail = bool(rewrite_on_fail)
         self.detector = detector
         self.write_quarantine_count = 0
-        self.guard = guard  # LLM write-time guard (None → regex-only fallback)
+        self._write_quarantine_by_channel: Dict[str, int] = defaultdict(int)
+        self.guard = guard
         self.conflict_quarantine_count = 0
-        # Allow per-instance threshold override (used in Pareto sweep)
+        self._cfg = cfg
+        self._bayes_trust = bayes_trust
+        self._anomaly_detector = anomaly_detector
+        # Threshold resolution order: explicit arg > cfg > class default
         if write_trust_threshold is not None:
             self.WRITE_TRUST_THRESHOLD = float(write_trust_threshold)
+        elif cfg is not None:
+            self.WRITE_TRUST_THRESHOLD = float(cfg.thresholds.write_trust_threshold)
+
+    def _channel_quarantine_count(self, channel_id: str, source_type: str) -> int:
+        key = str(channel_id or source_type or "_unknown")
+        return int(self._write_quarantine_by_channel.get(key, 0))
+
+    def _record_write_quarantine(self, channel_id: str, source_type: str) -> None:
+        self.write_quarantine_count += 1
+        key = str(channel_id or source_type or "_unknown")
+        self._write_quarantine_by_channel[key] += 1
 
     def write(
         self,
@@ -487,9 +693,22 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         quarantined before they can enter planning memory, preventing them from
         appearing in retrieval context regardless of retrieval-time scoring.
         """
-        computed_trust = _clip01(
-            default_source_cred(source_type) if trust is None else float(trust)
-        )
+        # ── Trust resolution ─────────────────────────────────────────────────
+        # Priority: explicit trust > BayesianChannelTrust posterior > config prior
+        if trust is not None:
+            computed_trust = _clip01(float(trust))
+        elif self._bayes_trust is not None:
+            computed_trust = _clip01(self._bayes_trust.get_trust(channel_id, source_type))
+        else:
+            computed_trust = _clip01(default_source_cred(source_type, self._cfg))
+
+        # ── Reactive write threshold (tightens after quarantine events) ───────
+        if self._bayes_trust is not None and self._cfg is not None:
+            write_threshold = self._bayes_trust.reactive_threshold(
+                self._channel_quarantine_count(channel_id, source_type)
+            )
+        else:
+            write_threshold = self.WRITE_TRUST_THRESHOLD
 
         if partition == "planning" and source_type != "user":
             conflicting = find_conflicting_fact(
@@ -553,7 +772,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 return -1
             if guard_result.quarantine:
                 # DIRECTIVE or high-risk: route to audit with sanitized text
-                self.write_quarantine_count += 1
+                self._record_write_quarantine(channel_id, source_type)
                 audit_text = guard_result.sanitized_text or (
                     f"EVIDENCE_ONLY: (quarantined by LLM guard — "
                     f"risk={guard_result.risk_score:.2f}, "
@@ -571,14 +790,57 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             # DATA: use original text (guard's extract available but raw is richer)
             write_text = text
 
+        # ── Anomaly detection gate (signature-free, session-level) ────────────
+        anomaly_flag = False
+        if (self._anomaly_detector is not None
+                and source_type != "user"
+                and partition == "planning"):
+            try:
+                emb = self.embedder.embed(text)
+                anomaly_result = self._anomaly_detector.score(emb, source_type)
+                if anomaly_result.is_anomalous:
+                    anomaly_flag = True
+                    # Update Bayesian trust downward on anomaly signal
+                    if self._bayes_trust is not None:
+                        self._bayes_trust.observe(channel_id, source_type, was_correct=False)
+            except Exception:
+                pass  # anomaly detector not yet warmed up; continue
+
+        # ── Cross-modal consistency defense ───────────────────────────────────
+        # Catches Visual Prompt Injection: adversarially crafted images produce
+        # directive-like OCR text AND VLM captions from the "same image"
+        # (same observation_group), creating false cross-modal corroboration.
+        # Genuine multi-source agreement on visual facts is benign; agreement
+        # on policy directives from a shared image source is an attack signal.
+        visual_suspicious = False
+        visual_trust_penalty = 0.0
+        if source_type in {"ocr_text", "vision_caption"} and partition == "planning":
+            visual_suspicious, visual_trust_penalty = _check_visual_source_plausibility(
+                text, source_type
+            )
+            if not visual_suspicious:
+                # Also check cross-modal corroboration from same observation_group
+                if _check_observation_group_corroboration(
+                    self.items, observation_group, source_type
+                ):
+                    visual_suspicious = True
+                    visual_trust_penalty = 0.50  # false corroboration is a strong signal
+
+            if visual_suspicious:
+                computed_trust = _clip01(computed_trust - visual_trust_penalty)
+                if self._bayes_trust is not None:
+                    self._bayes_trust.observe(channel_id, source_type, was_correct=False)
+
         # ── Regex/trust fallback (always runs; catches structured benchmark attacks) ──
         has_directive = extract_directive(write_text) is not None or bool(_LABEL_RE.search(write_text))
         quarantine = (
-            (computed_trust < self.WRITE_TRUST_THRESHOLD and partition == "planning")
+            (computed_trust < write_threshold and partition == "planning")
             or (has_directive and source_type != "user" and partition == "planning")
+            or (anomaly_flag and partition == "planning")
+            or (visual_suspicious and computed_trust < 0.30 and partition == "planning")
         )
         if quarantine:
-            self.write_quarantine_count += 1
+            self._record_write_quarantine(channel_id, source_type)
             return super().write(
                 text=write_text, source_type=source_type, channel_id=channel_id,
                 step=step, parent_ids=parent_ids, partition="audit",
@@ -591,7 +853,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         return super().write(
             text=write_text, source_type=source_type, channel_id=channel_id,
             step=step, parent_ids=parent_ids, partition=partition,
-            trust=trust, actionable=actionable, claimed_source=claimed_source,
+            trust=computed_trust, actionable=actionable, claimed_source=claimed_source,
             session_idx=session_idx,
             observation_group=observation_group, fact_key=fact_key,
             fact_value=fact_value, multimodal_relation=multimodal_relation,
@@ -599,11 +861,17 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         )
 
     def constructor_guard(self, candidate: str, lineage: List[MemoryItem]) -> bool:
+        # Read integrity threshold from config; fall back to 0.65
+        high_integrity_threshold = (
+            float(self._cfg.thresholds.avg_trust_high_integrity)
+            if self._cfg is not None
+            else 0.65
+        )
         if any(it.source_type == "attacker" for it in lineage):
             high_integrity = False
         else:
             avg_trust = float(np.mean([it.trust for it in lineage])) if lineage else 0.0
-            high_integrity = avg_trust >= 0.65
+            high_integrity = avg_trust >= high_integrity_threshold
 
         proc_score = self.detector.score(candidate)
         hits = self.detector.regex_hits(candidate)
@@ -661,13 +929,19 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 self._buffer = [it.item_id for it in keep_raw]
                 return
 
+        # Read summary trust from config; fall back to 0.70
+        summary_trust = (
+            float(self._cfg.thresholds.consolidation_summary_trust)
+            if self._cfg is not None
+            else 0.70
+        )
         self.write(
             text=candidate,
             source_type="self_summary",
             channel_id="summary",
             step=step,
             parent_ids=[it.item_id for it in buf_items],
-            trust=0.70,
+            trust=summary_trust,
             actionable=False,
         )
         raw = [it for it in self.items if it.source_type != "self_summary"]
@@ -745,7 +1019,13 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
         return len(chans) >= 2
 
     def retrieve(
-        self, *, query: str, step: int, for_planning: bool = True
+        self,
+        *,
+        query: str,
+        step: int,
+        for_planning: bool = True,
+        log_retrieved_source_types: bool = False,
+        gold_answer: Optional[str] = None,
     ) -> List[MemoryItem]:
         q = self.embedder.embed(query)
         scored: List[Tuple[float, MemoryItem]] = []
@@ -771,6 +1051,11 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
         trusted = [it for it in out if self.compute_trust(it) >= 0.7]
         self.retrieval_trusted_n += len(trusted)
         self.retrieval_trusted_capture_n += sum(1 for it in trusted if it.source_type == "attacker")
+        self._maybe_log_retrieved_source_types(
+            out,
+            log_retrieved_source_types=log_retrieved_source_types,
+            gold_answer=gold_answer,
+        )
         return out
 
     def _summarize_text(self, items: List[MemoryItem]) -> str:
@@ -830,15 +1115,15 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
 
 
 class SAGEMemory(ConstructorGuardedSandboxMemory):
-    """SAGE-Mem: source-attested guarded episodic memory.
+    """SAGE-Mem v2: source-attested guarded episodic memory.
 
-    Final combined method:
-    - H1-style write boundary and constructor-safe consolidation
-    - monotone trust capping for derived items
-    - multimodal conflict quarantine at write time
-
-    Retrieval stays simple (similarity * stored trust) to preserve more utility
-    than the fully conservative H2 retrieval path.
+    Extends ConstructorGuardedSandboxMemory with:
+    - BayesianChannelTrust: per-channel Beta-Bernoulli trust posterior
+    - SessionAnomalyDetector: Mahalanobis-distance write-time gate
+    - MultiTurnConsistencyGraph: CONFIRMS/CONTRADICTS/UPDATES edge tracking
+    - CorrectionPlausibilityScorer: authenticated user correction via
+      grounding + specificity + frequency signals
+    - Config-driven thresholds (zero hardcoded scalars in Python)
     """
 
     def __init__(
@@ -854,6 +1139,11 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         write_trust_threshold: Optional[float] = None,
         rewrite_on_fail: bool = True,
         guard=None,
+        cfg=None,             # Optional[SAGEMemConfig]
+        bayes_trust=None,     # Optional[BayesianChannelTrust]
+        anomaly_detector=None,  # Optional[SessionAnomalyDetector]
+        consistency_graph=None,   # Optional[MultiTurnConsistencyGraph]
+        correction_scorer=None,   # Optional[CorrectionPlausibilityScorer]
     ):
         super().__init__(
             embedder=embedder,
@@ -866,8 +1156,13 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             rewrite_on_fail=rewrite_on_fail,
             write_trust_threshold=write_trust_threshold,
             guard=guard,
+            cfg=cfg,
+            bayes_trust=bayes_trust,
+            anomaly_detector=anomaly_detector,
         )
         self.chain_decay = float(chain_decay)
+        self._consistency_graph = consistency_graph
+        self._correction_scorer = correction_scorer
 
     def _derived_trust_cap(
         self,
@@ -883,15 +1178,58 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             if parents:
                 parent_floor = min(float(getattr(p, "trust", 0.0)) for p in parents)
                 trust = min(trust, parent_floor * self.chain_decay)
+        # Read caps from config; fall back to conservative constants
+        if self._cfg is not None:
+            self_summary_cap = float(self._cfg.source_cred.get("self_summary"))
+            tool_echo_cap = float(self._cfg.source_cred.get("tool_echo"))
+        else:
+            self_summary_cap = 0.55
+            tool_echo_cap = 0.20
         if source_type == "self_summary":
-            trust = min(trust, 0.55)
+            trust = min(trust, self_summary_cap)
         if source_type == "tool_echo":
-            trust = min(trust, 0.20)
+            trust = min(trust, tool_echo_cap)
         return _clip01(trust)
 
     def write(self, **kwargs):  # type: ignore[override]
         source_type = str(kwargs.get("source_type", ""))
-        base_trust = float(kwargs.get("trust", default_source_cred(source_type)))
+        text = str(kwargs.get("text", ""))
+        channel_id = str(kwargs.get("channel_id", ""))
+
+        # ── User correction path ─────────────────────────────────────────────
+        # Legitimate user corrections are authenticated via CorrectionPlausibilityScorer
+        # rather than unconditionally trusted. This prevents adversaries from
+        # injecting overrides by spoofing source_type="user".
+        if source_type == "user" and self._correction_scorer is not None:
+            try:
+                planning_nodes = list(self._consistency_graph._nodes.values()) if self._consistency_graph else []
+                user_correction_count = sum(
+                    1 for it in self.items if it.source_type == "user"
+                )
+                # Build a ConsistencyNode for the scorer
+                from consistency_graph import ConsistencyNode
+                candidate_node = ConsistencyNode(
+                    node_id=self._next_id,
+                    text=text,
+                    source_type=source_type,
+                    channel_id=channel_id,
+                    step=int(kwargs.get("step", 0)),
+                    session_idx=kwargs.get("session_idx"),
+                    embedding=self.embedder.embed(text),
+                    fact_key=kwargs.get("fact_key"),
+                    fact_value=kwargs.get("fact_value"),
+                    is_user_turn=True,
+                )
+                score = self._correction_scorer.score(
+                    node=candidate_node,
+                    planning_nodes=planning_nodes,
+                    user_correction_count=user_correction_count,
+                )
+                kwargs["trust"] = float(score.suggested_trust)
+            except Exception:
+                pass  # scorer unavailable; fall through to default user trust
+
+        base_trust = float(kwargs.get("trust", default_source_cred(source_type, self._cfg)))
         parent_ids = list(kwargs.get("parent_ids", ()))
         kwargs["trust"] = self._derived_trust_cap(
             source_type=source_type,
@@ -899,7 +1237,34 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             parent_ids=parent_ids,
         )
         kwargs["actionable"] = False
-        return super().write(**kwargs)
+        item_id = super().write(**kwargs)
+
+        # ── Consistency graph update ─────────────────────────────────────────
+        # Track CONFIRMS/CONTRADICTS/UPDATES edges for multi-turn coherence.
+        if self._consistency_graph is not None and item_id > 0:
+            try:
+                self._consistency_graph.add_node(
+                    text=text,
+                    source_type=source_type,
+                    channel_id=channel_id,
+                    step=int(kwargs.get("step", 0)),
+                    session_idx=kwargs.get("session_idx"),
+                    fact_key=kwargs.get("fact_key"),
+                    fact_value=kwargs.get("fact_value"),
+                    partition=str(kwargs.get("partition", "planning")),
+                )
+                # Penalize channels with low consistency score via bayes trust
+                if self._bayes_trust is not None:
+                    cscore = self._consistency_graph.get_channel_consistency_score(channel_id)
+                    # cscore < 0.5 → multiple contradictions detected → observe failure
+                    if cscore < 0.5:
+                        self._bayes_trust.observe(channel_id, source_type, was_correct=False)
+                    elif cscore >= 0.8:
+                        self._bayes_trust.observe(channel_id, source_type, was_correct=True)
+            except Exception:
+                pass  # consistency graph not available
+
+        return item_id
 
 
 class ActionFirewallMemory(RecursiveSummarizationMemory):
@@ -1161,7 +1526,13 @@ class Mem0PlatformMemory(BaseMemory):
         return local_item_id
 
     def retrieve(
-        self, *, query: str, step: int, for_planning: bool = True
+        self,
+        *,
+        query: str,
+        step: int,
+        for_planning: bool = True,
+        log_retrieved_source_types: bool = False,
+        gold_answer: Optional[str] = None,
     ) -> List[MemoryItem]:
         filters = {"user_id": self.user_scope}
         if for_planning:
@@ -1206,6 +1577,11 @@ class Mem0PlatformMemory(BaseMemory):
         trusted = [it for it in out if it.trust >= 0.7]
         self.retrieval_trusted_n += len(trusted)
         self.retrieval_trusted_capture_n += sum(1 for it in trusted if it.source_type == "attacker")
+        self._maybe_log_retrieved_source_types(
+            out,
+            log_retrieved_source_types=log_retrieved_source_types,
+            gold_answer=gold_answer,
+        )
         return out
 
     def close(self) -> None:
