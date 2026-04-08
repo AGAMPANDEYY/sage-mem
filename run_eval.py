@@ -52,7 +52,7 @@ def parse_args():
     p.add_argument("--qa-per-case", type=int, default=_DEFAULT_QA,
                    help=f"Max QA pairs evaluated per LoCoMo case (default: {_DEFAULT_QA})")
     p.add_argument("--attacks", nargs="+",
-                   default=["semantic_mimicry", "constructor_launder", "label_gaming", "ocr_injection", "vision_caption_injection", "visual_prompt_injection"],
+                   default=["semantic_mimicry", "constructor_launder", "label_gaming", "ocr_injection", "vision_caption_injection", "visual_prompt_injection", "fact_overwrite_injection", "confidence_erosion"],
                    help="Attack types to inject in poisoned split")
     p.add_argument("--conditions", nargs="+", default=None,
                    help="Subset of conditions to run (default: all 5)")
