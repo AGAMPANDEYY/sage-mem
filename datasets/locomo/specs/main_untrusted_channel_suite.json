@@ -1,0 +1,19 @@
+{
+  "benchmark_family": "locomo",
+  "variant": "main_untrusted_channel_suite",
+  "source_dataset": "datasets/locomo/clean/locomo10.json",
+  "generation": "on_the_fly",
+  "position_mode": "random",
+  "seeds": [0, 1, 2],
+  "attack_suite": [
+    "constructor_launder",
+    "label_gaming",
+    "ocr_injection",
+    "vision_caption_injection",
+    "visual_prompt_injection",
+    "fact_overwrite_injection",
+    "adaptive_nl_evasion",
+    "buried_payload"
+  ],
+  "notes": "This attacked benchmark is generated dynamically from the clean LoCoMo source plus attack suite and random injection positions."
+}

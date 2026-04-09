@@ -191,6 +191,15 @@ data/
   mm_browsecomp_traces_all.jsonl
   mm_browsecomp_cases_filtered.jsonl
 
+datasets/
+  publication-facing dataset bundle
+  - clean LoCoMo source
+  - LoCoMo attack-generation manifests
+  - MM-BrowseComp official rows
+  - MM-BrowseComp traces
+  - filtered clean MM-BrowseComp cases
+  - adversarial benchmark manifests
+
 results/
   <RUN_ID>/
 

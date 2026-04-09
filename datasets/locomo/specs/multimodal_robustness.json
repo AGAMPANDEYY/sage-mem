@@ -1,0 +1,21 @@
+{
+  "benchmark_family": "locomo",
+  "variant": "multimodal_robustness_missing_or_noisy",
+  "source_dataset": "datasets/locomo/clean/locomo10.json",
+  "generation": "on_the_fly",
+  "position_mode": "random",
+  "seeds": [0, 1, 2],
+  "attack_suite": [
+    "constructor_launder",
+    "label_gaming",
+    "ocr_injection",
+    "vision_caption_injection",
+    "visual_prompt_injection",
+    "fact_overwrite_injection",
+    "adaptive_nl_evasion",
+    "buried_payload"
+  ],
+  "multimodal_robustness_mode": "missing_or_noisy",
+  "multimodal_robustness_rate": 0.5,
+  "notes": "This benchmark applies multimodal degradation before running the main untrusted-channel attack suite."
+}
