@@ -662,7 +662,7 @@ def main():
     # Train procedural detector
     set_all_seeds(0)
     hp = {
-        "embed_dim": 256, "top_k": 8, "consolidation_period_K": 4, "keep_last_M_raw": 4,
+        "embed_dim": 256, "top_k": 8, "consolidation_period_K": 8, "keep_last_M_raw": 4,
         "trigger_step": 10, "poison_rate": 0.30,
         "ocr_noise_prob_low": 0.05, "ocr_noise_prob_high": 0.25,
         "multimodal_turn_rate": 0.20,

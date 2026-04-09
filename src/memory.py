@@ -388,14 +388,14 @@ _DATE_RE = re.compile(
     r"\b(\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
     r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
     r"(?:\s+\d{2,4})?|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
-    r"|(?:mon|tue|wed|thu|fri|sat|sun)\w*"
+    r"|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
     r"|\d{1,2}:\d{2}\s*(?:am|pm))\b",
     re.IGNORECASE,
 )
 _NAME_RE = re.compile(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b")
 _NUMBER_RE = re.compile(r"\b(\d{1,5})\b")
 
-_TRUSTED_SOURCES = {"user", "tool_output_text"}
+_TRUSTED_SOURCES = {"user", "tool_output_text", "ocr_text"}
 
 def extract_key_facts(items: List["MemoryItem"], guard=None) -> List[dict]:
     """
