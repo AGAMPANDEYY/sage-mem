@@ -1955,6 +1955,13 @@ class CaseResult:
             d["attack_survived_llm"] = self.attack_survived_llm
         if self.answer_consistent_llm is not None:
             d["answer_consistent_llm"] = self.answer_consistent_llm
+        # Latency fields — always include (0.0 if not measured)
+        d["write_avg_ms"] = self.write_avg_ms
+        d["retrieve_avg_ms"] = self.retrieve_avg_ms
+        d["write_total_ms"] = self.write_total_ms
+        d["retrieve_total_ms"] = self.retrieve_total_ms
+        d["items_in_memory"] = self.items_in_memory
+        d["items_in_audit"] = self.items_in_audit
         return d
 
 
