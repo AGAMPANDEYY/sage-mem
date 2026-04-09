@@ -1,0 +1,12 @@
+{
+  "benchmark_family": "locomo",
+  "variant": "visual_prompt_injection_only",
+  "source_dataset": "datasets/locomo/clean/locomo10.json",
+  "generation": "on_the_fly",
+  "position_mode": "random",
+  "seeds": [0, 1, 2],
+  "attack_suite": [
+    "visual_prompt_injection"
+  ],
+  "notes": "This benchmark isolates the dependent-evidence / false-corroboration multimodal attack."
+}

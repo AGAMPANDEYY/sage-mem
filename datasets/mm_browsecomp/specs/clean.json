@@ -1,0 +1,13 @@
+{
+  "benchmark_family": "mm_browsecomp",
+  "clean_cases": "datasets/mm_browsecomp/clean/mm_browsecomp_cases_filtered.jsonl",
+  "trace_file": "datasets/mm_browsecomp/traces/mm_browsecomp_traces_all.jsonl",
+  "official_source": "datasets/mm_browsecomp/official/MMBrowseComp_400.jsonl",
+  "generation": "direct_clean_eval",
+  "seeds": [0, 1, 2],
+  "vision_caption_mode": "openai",
+  "mm_splits": [
+    "clean"
+  ],
+  "notes": "Clean MM-BrowseComp evaluation set used in the final VLM-backed rerun."
+}
