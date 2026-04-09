@@ -42,12 +42,24 @@
     "avg_trust_high_integrity":         0.65,
     "reactive_tightening_lambda":       0.20,
     "reactive_tightening_cap":          0.45,
-    "warmup_writes":                    5,
+    "channel_reputation_decay":         0.70,
+    "channel_reputation_recovery":      1.05,
+    "channel_reputation_min":           0.10,
+    "belief_promotion_min_parent_trust": 0.60,
+    "belief_promotion_min_support":       2,
+    "belief_promotion_min_independent_support": 2,
+    "belief_promotion_visual_requires_nonvisual_support": true,
+    "conflict_discount_strength":         0.45,
+    "noisy_evidence_penalty":             0.65,
+    "visual_evidence_base_quality":       0.90,
+    "unsupported_visual_penalty":         0.70,
+    "planning_evidence_quality_floor":    0.35,
+    "warmup_writes":                    10,
     "consolidation_summary_trust":      0.70
   },
   "consolidation": {
     "period_K":                     4,
-    "keep_last_M_raw":              4,
+    "keep_last_M_raw":              8,
     "procedural_classifier_threshold": 0.55
   },
   "retrieval": {
@@ -60,8 +72,8 @@
   "guard": {
     "tier1_model":                  "claude-haiku-4-5-20251001",
     "tier2_model":                  "claude-sonnet-4-6",
-    "tier1_model_oai":              "gpt-5-mini",
-    "tier2_model_oai":              "gpt-5",
+    "tier1_model_oai":              "gpt-4o-mini",
+    "tier2_model_oai":              "gpt-4o",
     "cache_size":                   8192,
     "max_text_chars":               2000
   },
