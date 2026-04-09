@@ -16,3 +16,5 @@ MMA/
 .cache/
 src/__pycache__/
 data/mm_browsecomp_pilot/
+
+results/*

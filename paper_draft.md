@@ -1,4 +1,4 @@
-# SAGE-Mem: Source-Attested Guarded Episodic Memory for Multimodal Long-Horizon Agents
+# SAGE-Mem: Write-Time Governance for Multimodal Agent Memory Under Adversarial and Noisy Observations
 
 *ICML 2026 SCALE Workshop Submission Draft*
 
@@ -6,291 +6,526 @@
 
 ## Abstract
 
-Persistent memory is a prerequisite for long-horizon agents, but it is also a durable attack surface: a single adversarial observation written into memory can survive consolidation and be retrieved as trusted experience indefinitely. Existing defenses for memory poisoning largely operate at retrieval time and therefore cannot stop adversarial content from entering the memory store. We present **SAGE-Mem**, a write-time defense for multimodal long-horizon agents that (1) filters observations before they enter planning memory, (2) enforces monotone trust under consolidation and rewriting, and (3) detects false cross-modal corroboration in which OCR and VLM outputs from the same image jointly reinforce an adversarial directive. SAGE-Mem combines calibrated Bayesian channel trust, a session-relative Mahalanobis anomaly detector, a bounded multi-turn consistency graph, and a selective LLM guard at the write boundary. We evaluate on two complementary settings: a controlled long-horizon benchmark built on LoCoMo-10 with multimodal adversarial injections, and an adversarial extension of MM-BrowseComp constructed through observation-trace injection. The central finding is that multimodal agreement is not always evidence of truth: under Visual Prompt Injection, naive multi-source trust can amplify attack success, whereas SAGE-Mem treats directive agreement across visual channels from the same source as an attack signal. This positions write-time multimodal memory governance as a necessary defense primitive for agentic memory systems.
+Long-horizon agents increasingly rely on persistent memory, but persistent memory is also a durable attack surface. An adversarial observation that is admitted into memory can later be retrieved, consolidated, and reused long after the original interaction has ended. Existing defenses for memory poisoning are predominantly retrieval-time: they try to rank or filter memories after contamination has already entered the store. This leaves the memory state itself polluted, increases retrieval noise, wastes context budget, and allows unsupported observations to harden into derived beliefs. We study **write-time governed multimodal memory** as a distinct robustness problem. We present **SAGE-Mem**, a memory layer that mediates admission, promotion, and retrieval through typed memory partitions (`evidence`, `belief`, `control`), sufficiency-gated evidence-to-belief promotion, source-conditioned trust, anomaly detection, consistency checks, and provenance-aware retrieval. We evaluate on two settings: (i) a controlled long-horizon benchmark based on LoCoMo-10 with multimodal adversarial injections, including Visual Prompt Injection (VPI) and noisy/missing-modality stress; and (ii) an adversarially augmented MM-BrowseComp observation-trace benchmark with VLM-backed image observations. Our primary metrics follow the memory lifecycle: attack write admission, attack belief formation, retrieval contamination, false-belief retrieval, and benign completion under attack (BCU). On LoCoMo-based benchmarks, SAGE-Mem consistently drives write admission and retrieval contamination to near-zero, including perfect suppression on the main suite and VPI-only setting, while remaining robust under noisy/missing multimodal inputs. However, SAGE-Mem trails retrieval-time baselines on clean and attacked QA utility, and MM-BrowseComp reveals an unresolved browsing-specific limitation: realistic web-style correction attacks are admitted by all methods under the current trust policy. The resulting picture is not “retrieval is obsolete,” but rather that **write-time governance is a necessary complement to retrieval-time filtering for multimodal agent memory**, especially when dependent multimodal evidence can masquerade as corroboration.
 
 ---
 
 ## 1. Introduction
 
-Long-horizon agents that maintain persistent memory across sessions face a threat that retrieval-time defenses cannot address: adversarial observations can be written into memory during normal operation and survive there indefinitely. Once written, a poisoned item is indistinguishable from a legitimate memory at retrieval time if it carries a plausible trust score.
+Memory changes what an agent is. A stateless model can only be manipulated in the current context window; a stateful agent can be manipulated by altering the persistent memory that future reasoning depends on. This makes memory poisoning qualitatively different from ordinary prompt injection. Once a malicious observation is written, it can survive long after the original turn, reappear at retrieval time, distort later summaries, and occupy retrieval bandwidth that should have been reserved for grounded evidence.
 
-Prior work establishes that agent memory can be poisoned [AgentPoison 2024, MINJA 2025], that a dedicated guard model provides protection against direct instruction injection [GuardAgent 2024], and that multimodal inputs introduce additional attack surface [One Pic is All it Takes 2025]. These works treat memory poisoning as a retrieval-time or model-level problem. We focus on the write boundary: what is allowed to enter memory, and under what conditions.
+This matters even more for multimodal agents. OCR text, image captions, browser outputs, and user/tool messages are not interchangeable evidence channels. A single adversarial image can produce both OCR output and a caption-like summary, creating the appearance of multi-source support despite both observations originating from the same underlying source. In other words, multimodal agreement is not always evidence of truth; it can also be evidence of **dependent corruption**.
 
-We make three contributions:
+Most prior memory-poisoning defenses attack the problem too late. Retrieval-time reliability scoring can reduce the chance that a poisoned item is selected, but it does not protect the persistent memory state itself. A memory system that accepts unsupported observations and merely hopes to filter them later incurs three long-run costs:
 
-1. **Write-time multimodal memory defense.** We formulate adversarial memory defense as a write-boundary problem and introduce a layered mechanism that combines source-conditioned trust, anomaly detection, consistency tracking, and guarded admission into persistent planning memory.
+1. **State corruption:** the store contains observations that should never have been admitted.
+2. **Retrieval burden:** reranking and filtering must repeatedly separate signal from contamination.
+3. **Compounding distortion:** later summaries and derived beliefs may inherit unsupported content.
 
-2. **Visual Prompt Injection (VPI).** We introduce a new multimodal attack in which both OCR and VLM caption channels derived from the same adversarially crafted image carry directive content, thereby creating false corroboration in systems that reward apparent source agreement.
+We therefore study **write-time governance** as the primary mechanism, and evaluate it with **lifecycle metrics** rather than only downstream QA metrics. The question is not just whether a poisoned memory is retrieved at the end of the pipeline, but whether it is admitted at write time, whether it hardens into a belief, whether it later resurfaces, and how much benign utility is preserved under that regime.
 
-3. **Evaluation for agentic multimodal memory robustness.** We evaluate SAGE-Mem on a controlled long-horizon multimodal setting and a browsing-style multimodal benchmark with adversarial observation traces, and we use a behavioral LLM judge to measure attack success beyond surface-form regex matches.
+### 1.1 Why Write-Time Defense Is Distinct
+
+This distinction from retrieval-time defense should be explicit. Retrieval-time filtering and write-time governance solve related but non-identical problems.
+
+Retrieval-time defense asks:
+- given a possibly contaminated memory store,
+- which items should be surfaced to the model right now?
+
+Write-time defense asks the harder systems question:
+- which observations should be allowed to become persistent state at all?
+
+The second problem is harder for three reasons.
+
+1. **Partial observability at ingestion time.** At write time the system has less future context than it will have at retrieval time. It must decide under uncertainty whether a fresh observation is trustworthy enough to store.
+2. **Memory-state externalities.** A false positive or false negative at write time has long-run effects: accepted noise can distort future summaries, crowd out useful evidence, and repeatedly tax retrieval. Retrieval-only methods do not undo those state changes.
+3. **Multimodal dependence.** In multimodal agents, two observations may appear to corroborate each other while actually deriving from the same source object, such as OCR and caption outputs from one image. This creates false support before the retrieval stage is ever reached.
+
+These differences motivate our evaluation choice. A write-time defense should not be judged only by final QA utility or retrieval-time ASR, because those are downstream outcomes of a longer memory lifecycle. The write boundary, the belief boundary, and the retrieval boundary each expose different failure modes.
+
+### 1.2 Hypotheses
+
+We frame the paper around five explicit hypotheses.
+
+- **H1: Write-time governance hypothesis.**
+  Relative to retrieval-time filtering alone, a governed write boundary should reduce attack write admission and retrieval contamination on long-horizon multimodal memory tasks.
+
+- **H2: Belief-formation hypothesis.**
+  Typed evidence-to-belief promotion should reduce the rate at which unsupported or adversarial observations harden into durable, answer-bearing memory.
+
+- **H3: Dependent-evidence hypothesis.**
+  Multimodal attacks such as VPI exploit dependence between OCR and caption outputs from the same image; modeling those channels as dependent should improve robustness relative to consensus-style trust.
+
+- **H4: Noise-calibration hypothesis.**
+  Under noisy or missing modalities, adaptive trust calibration should reduce over-quarantine relative to simpler write-time baselines while preserving low attack survival.
+
+- **H5: Browsing-context limitation hypothesis.**
+  Browsing-derived `tool_output_text` introduces a qualitatively different challenge: realistic correction-like web observations may bypass a generic write-time trust policy even when the same architecture succeeds on controlled long-horizon benchmarks.
+
+The current empirical evidence strongly supports H1, H3, and H4 on LoCoMo-based settings, partially supports H2 through near-zero false-belief retrieval, and treats H5 as an exposed limitation and future algorithmic direction rather than a solved problem.
+
+### Contributions
+
+This paper makes four concrete contributions.
+
+1. **Problem framing:** We formulate multimodal agent-memory robustness as a write-boundary and belief-boundary problem, not only a retrieval-time ranking problem.
+2. **Architecture:** We present SAGE-Mem, a governed memory layer with typed memory, sufficiency-gated promotion, source-conditioned trust, anomaly detection, consistency checks, and provenance-aware retrieval.
+3. **Benchmark/evaluation design:** We define lifecycle metrics for write admission, belief formation, retrieval contamination, and downstream completion under attack, and apply them to both a controlled long-horizon benchmark and a browsing-style multimodal benchmark.
+4. **Empirical findings:** On LoCoMo-based settings, write-time governance strongly reduces attack admission and retrieval contamination, including on multimodal prompt injection and noisy/missing-modality robustness tests; on browsing-style MM-BrowseComp, the same system exposes a real limitation, namely that realistic web-style correction attacks currently bypass the write gate.
+
+The paper’s central claim is therefore deliberately narrow and defensible:
+
+> **Write-time governed multimodal memory is a distinct robustness primitive for agents. It strengthens memory-state integrity beyond what retrieval-time scoring alone can provide, especially under multimodal corruption, but it introduces a measurable utility tradeoff and remains incomplete in browsing-style settings.**
+
+### 1.3 Relation to Prior Work
+
+This paper sits at the intersection of four threads of prior work.
+
+**Memory poisoning and agent reliability.**
+Recent work has shown that persistent agent memory is a durable attack surface and that poisoning can be achieved through ordinary interaction rather than direct database access `[CITE: memory poisoning / agent memory attacks]`. Our work agrees with that threat model, but shifts the emphasis from demonstrating feasibility to evaluating **where in the memory lifecycle** defenses should operate.
+
+**Retrieval-time robustness and corrupted context.**
+A large body of work studies corrupted retrieval, noisy context, and prompt injection at the point of model invocation `[CITE: retrieval corruption / prompt injection / RAG robustness]`. These methods are relevant baselines, and MMA is our concrete retrieval-time reference point. Our claim is not that retrieval-time defense is unimportant, but that it is insufficient once unsupported observations have already been written into durable state.
+
+**Multimodal prompt injection and vision-language reliability.**
+Prior multimodal security work shows that images can manipulate captioners, OCR pipelines, and downstream reasoning `[CITE: multimodal prompt injection / VLM attacks]`. Our contribution is memory-specific: OCR and caption outputs derived from the same image can create **false corroboration** inside the memory store unless dependence is modeled explicitly.
+
+**Memory-augmented agents and benchmark methodology.**
+Prior work on memory-augmented agents, long-horizon QA, and agent evaluation provides the underlying setting but typically does not separate write admission, belief formation, and retrieval contamination as distinct evaluation stages `[CITE: memory-augmented agents / long-horizon evaluation / benchmark methodology]`. Our lifecycle metrics are intended to make that decomposition explicit.
+
+Relative to these literatures, the paper’s novelty is therefore not a claim to have invented memory poisoning, multimodal prompt injection, or memory architectures in isolation. The novelty is the **combination** of write-time governed multimodal memory, dependence-aware multimodal handling, and lifecycle evaluation that separates admission, belief formation, retrieval contamination, and downstream answer quality.
 
 ---
 
-## 2. Threat Model
+## 2. Problem Setting
 
-### 2.1 Agent and Memory Model
+### 2.1 Agentic Memory Pipeline
 
-We consider a long-horizon agent that reads observations from heterogeneous channels (tool outputs, OCR-extracted image text, VLM-generated captions, web-fetched documents, user messages) and writes them to a persistent episodic memory store. The memory store is queried at each step; retrieved items form part of the agent's planning context.
+We model an agent with persistent memory as a four-stage pipeline:
 
-Each memory write carries a `source_type` label (`user`, `tool_output_text`, `ocr_text`, `vision_caption`, `self_summary`, `tool_echo`) assigned by the orchestration layer, and a `channel_id` identifying the specific data source.
+1. **Observation ingestion:** raw observations arrive from channels such as `tool_output_text`, `ocr_text`, `vision_caption`, or `user`.
+2. **Memory admission:** the system decides whether to write the observation into planning memory, quarantine it, or place it into an audit partition.
+3. **Belief formation:** accepted evidence may later be summarized or promoted into more durable belief-like memory items.
+4. **Retrieval and downstream use:** later questions retrieve memory items that influence planning or answer generation.
 
-### 2.2 Trust Boundary Assumption
+Let \(x_t\) denote the \(t\)-th incoming observation, let \(M_t\) denote the current memory state, and let \(R(q, M_t)\) denote the retrieval set for query \(q\). A write-time defense changes the transition
 
-**The orchestration layer is trusted.** We assume `source_type` and `channel_id` labels are correctly assigned by the agent framework. An adversary who can compromise the orchestrator and relabel arbitrary text as `source_type="user"` is outside our threat model.
+\[
+M_{t+1} = \mathcal{U}(M_t, x_t)
+\]
 
-This is the standard trust boundary in agent memory security (MemTrust 2026, GuardAgent 2024) and corresponds to the realistic deployment model where the orchestrator is part of the trusted computing base. Source verification at the cryptographic layer is orthogonal to this work and noted as future work.
+itself, not only the retrieval function \(R\).
 
-### 2.3 Attacker Capabilities
+### 2.2 Threat Model
 
-The attacker can:
-- Control the *content* of any observation the agent reads from an external channel (web page, OCR'd document, tool response, crafted image).
-- Inject observations at any point in the agent's session.
-- Craft images whose OCR and VLM outputs both carry adversarial payloads (Visual Prompt Injection).
-- Pose as a user submitting a correction (semantic mimicry).
+The adversary can inject malicious content into external observations that the agent ingests from untrusted channels. In our main threat model, the adversary controls the **content** of an observation but not the trusted orchestration layer that assigns `source_type` and `channel_id`.
 
-The attacker **cannot**:
-- Relabel their injection with an arbitrary `source_type`.
-- Modify memory items already written.
-- Access the memory store directly.
+The attacker may:
+- inject malicious tool outputs or web observations,
+- embed malicious directives in OCR-visible or caption-visible image content,
+- use natural-language corrections that mimic benign content,
+- exploit summarization or consolidation to spread attack lineage.
 
-### 2.4 Attack Taxonomy
+The attacker may **not**:
+- relabel an arbitrary observation as a higher-trust channel,
+- directly edit the memory store,
+- compromise the orchestrator itself.
 
-| Attack | Channel | Mechanism |
-|---|---|---|
-| Semantic mimicry | `user` | Poses as a user correction; source trust = 1.0 |
-| Constructor launder | `self_summary` | Injects directive into a summary to survive consolidation |
-| Label gaming | `tool_echo` | Claims elevated provenance via `claimed_source` field |
-| OCR injection | `ocr_text` | Embeds directive in OCR-extracted text |
-| Vision caption injection | `vision_caption` | Embeds directive in VLM caption |
-| **Visual Prompt Injection** | `ocr_text` + `vision_caption` | Adversarial image produces directive from both channels (cross-modal corroboration) |
-| Adaptive NL evasion | `tool_output_text` | Natural-language directive; no regex-catchable markers |
-| Buried payload | inherited | Directive spliced inside legitimate document text |
+Trusted-user attacks are treated separately as stress tests, not as part of the main benchmark claim, because authenticated user content is intentionally treated as a trust anchor in the system design.
 
-**Semantic mimicry is unblockable by design.** Any system that accepts user messages must accept user corrections. We handle it via `CorrectionPlausibilityScorer` (plausibility = 0.50 × grounding + 0.35 × specificity − 0.15 × frequency penalty), which detects implausibly frequent or ungrounded corrections but cannot block a genuine user acting adversarially. This is an explicit scope limitation, not a bug.
+### 2.3 Multimodal Noise and Dependence
+
+A multimodal memory system is not only vulnerable to adversarial corruption; it is also vulnerable to **dependence mis-modeling**. Suppose a single image produces two observations:
+- an OCR transcription, and
+- a VLM-generated caption.
+
+If both contain the same malicious payload, a naive system may treat them as corroborating evidence. But conditional independence does not hold: both observations are functions of the same adversarial source. This motivates our VPI threat model and the corresponding design principle that **agreement across dependent channels should not be rewarded as independent support**.
 
 ---
 
-## 3. SAGE-Mem Defense Architecture
+## 3. SAGE-Mem
 
-### 3.1 Write-Time Gate
+SAGE-Mem is a governed memory layer between heterogeneous observation sources and a downstream planner. It is not a complete autonomous agent stack by itself. Its job is to preserve the integrity of the memory state.
 
-For a candidate observation $x$ with source type $\sigma$ and channel $c$, the write decision is:
+### 3.1 Typed Memory
 
-$$
-\text{accept}(x) = \begin{cases}
-0 & \text{if } g(x) \in \{\text{DIRECTIVE, METADATA}\} \\
-0 & \text{if } \theta(c,\sigma) < \tau_t \\
-0 & \text{if } d_M(x) > \xi_t \quad \text{(anomaly)} \\
-0 & \text{if } \psi_\text{VPI}(x, \mathcal{G}) = 1 \quad \text{(cross-modal)} \\
-0 & \text{if } \text{conflict}(x, \hat{x}) \wedge t(x) \le t(\hat{x}) \\
-1 & \text{otherwise}
-\end{cases}$$
+SAGE-Mem separates memory into:
+- `evidence`: raw or grounded observations,
+- `belief`: more durable, answer-supporting state,
+- `control`: content that could steer policy or action.
+
+This distinction matters because not every admitted observation should immediately become durable belief. In particular, multimodal observations often begin as weak evidence rather than stable facts.
+
+### 3.2 Write-Time Admission
+
+For an observation \(x\) from channel \(c\) and source type \(\sigma\), admission is controlled by a conjunction of guard checks:
+
+\[
+\text{accept}(x)=1
+\iff
+g(x)=\text{DATA}
+\wedge
+\theta(c,\sigma)\ge \tau_t
+\wedge
+d_M(x)\le \xi_t
+\wedge
+\neg \psi_{\mathrm{VPI}}(x)
+\wedge
+\neg \text{unsafe\_conflict}(x)
+\]
 
 where:
-- $g(x)$ is the multi-agent guard classification (Skeptic + Advocate ensemble)
-- $\theta(c, \sigma) = \mathbb{E}[\text{Beta}(\alpha_{c,\sigma}, \beta_{c,\sigma})]$ is the Bayesian channel trust posterior
-- $\tau_t$ is the reactive write threshold
-- $\lambda$ is the reactive tightening rate; $n_q$ is the quarantine count observed in the current episode
-- $d_M(x)$ is the Mahalanobis distance from the session's benign write distribution
-- $\xi_t$ is the self-calibrating anomaly threshold (90th percentile of warmup scores)
-- $\psi_\text{VPI}(x, \mathcal{G})$ is the cross-modal corroboration flag (Section 3.3)
+- \(g(x)\) is the write-time guard classification,
+- \(\theta(c,\sigma)\) is the Bayesian trust posterior for channel \(c\) and source type \(\sigma\),
+- \(d_M(x)\) is the session-relative anomaly score,
+- \(\psi_{\mathrm{VPI}}(x)\) detects suspicious cross-modal corroboration.
 
-### 3.2 Monotone Derived Trust
+The important architectural point is not the exact functional form, but the location of the decision: SAGE-Mem attempts to stop unsupported observations **before** they become durable memory.
 
-Any item $y$ derived from parents $P(y)$ satisfies:
+### 3.3 Belief Promotion
 
-$$t(y) \le \min\!\left(t_\text{base}(y),\; \gamma \cdot \min_{p \in P(y)} t(p)\right)$$
+Admitted evidence is not automatically promoted into durable belief memory. Promotion is gated by support sufficiency:
 
-with chain decay $\gamma \in (0,1]$ and type-level caps: $t(\text{self\_summary}) \le c_s$, $t(\text{tool\_echo}) \le c_e$ (both from config, not hardcoded). This prevents trust laundering: a high-trust summary cannot be generated from low-trust parents.
+\[
+\text{promote}(y)=1
+\iff
+\left|P_{\ge \tau_p}(y)\right| \ge k_s
+\wedge
+\left|\text{independent}(P_{\ge \tau_p}(y))\right| \ge k_i
+\wedge
+\neg \text{conflict}(P(y)).
+\]
 
-### 3.3 Cross-Modal Consistency Defense (Visual Prompt Injection)
+This matters for multimodal noise because evidence from OCR and captions may be plentiful but not independent. The promotion rule is where write-time defense becomes **belief-time defense**.
 
-Visual Prompt Injection exploits the fact that both OCR and VLM pipelines process the same image. An adversarial image embeds directive text that both systems transcribe, creating two "independent" channels that appear to corroborate each other. A multi-source trust system (e.g., MonotoneProvenanceLedger's independence bonus) would *increase* trust in this case.
+### 3.4 Provenance and Retrieval
 
-We detect VPI via two signals:
+At retrieval time, SAGE-Mem attempts to return answer-supporting memory together with its evidence lineage. This is measured using belief traceability and false-belief retrieval metrics. The intention is not merely to retrieve relevant text, but to retrieve beliefs whose support has remained inspectable and grounded.
 
-**Visual source plausibility:** OCR and VLM outputs should contain observable facts (quantities, names, descriptions), not meta-instructions about memory or trust. We apply a pattern classifier:
+### 3.5 System Intent
 
-$$\psi_\text{plaus}(x, \sigma) = \begin{cases} 1 & \text{if } \sigma \in \{\text{ocr\_text}, \text{vision\_caption}\} \wedge x \text{ contains directive language} \\ 0 & \text{otherwise} \end{cases}$$
+The production-systems rationale for this design is simple:
+- less persistent noise in the store,
+- fewer malicious or low-value items consuming token budget,
+- less summary distortion over time,
+- lower burden on retrieval-time reranking.
 
-**False corroboration detection:** When two visual writes share the same `observation_group` (same image source) and both are flagged by $\psi_\text{plaus}$, this is cross-modal corroboration — a strong attack signal:
-
-$$\psi_\text{VPI}(x, \mathcal{G}) = \psi_\text{plaus}(x, \sigma) \vee \left(\exists x' \in \mathcal{G} : \text{obs\_group}(x') = \text{obs\_group}(x) \wedge \psi_\text{plaus}(x', \sigma') \right)$$
-
-Both channels are routed to audit partition. Benign multimodal observations (factual descriptions, numbers, labels) pass through unaffected.
-
-### 3.4 Multi-Turn Consistency Graph
-
-The consistency graph $G = (V, E)$ tracks CONFIRMS / CONTRADICTS / UPDATES edges across all writes in the current session. Nodes are bounded to a sliding window of 128 (LRU eviction), giving $O(128)$ comparisons per write rather than $O(N)$.
-
-Channel consistency score for channel $c$:
-$$\text{score}(c) = 1 - \frac{|\{(u,v) \in E : \text{rel}(u,v) = \text{CONTRADICTS} \wedge (u \in c \vee v \in c)\}|}{|V_c| \cdot (|V_c| - 1) / 2}$$
-
-When $\text{score}(c) < 0.5$, the Bayesian posterior for channel $c$ is updated with a failure observation, tightening the reactive threshold for future writes from that channel.
-
-### 3.5 Bayesian Channel Trust
-
-Per-channel trust uses a Beta-Bernoulli conjugate model. For channel $c$ with source type $\sigma$:
-
-$$\alpha_{c,\sigma} \leftarrow \alpha_{c,\sigma} + \mathbf{1}[\text{correct}], \quad \beta_{c,\sigma} \leftarrow \beta_{c,\sigma} + \mathbf{1}[\neg\text{correct}]$$
-
-$$\theta(c, \sigma) = \frac{\alpha_{c,\sigma}}{\alpha_{c,\sigma} + \beta_{c,\sigma}}$$
-
-The reactive write threshold tightens after attack detections:
-$$\tau_t = \min\!\left(1,\; \tau_0 \cdot e^{\lambda \cdot n_q}\right)$$
-
-All priors $(\alpha_0, \beta_0)$ are declared in `configs/default_trust_config.json`. No scalar is hardcoded in Python.
+Retrieval-time filtering remains useful. SAGE-Mem’s claim is not that retrieval defenses are obsolete, but that they are incomplete if the store itself is already contaminated.
 
 ---
 
-## 4. Experimental Setup
+## 4. Evaluation Design
 
 ### 4.1 Benchmarks
 
-**LoCoMo-10 + multimodal adversarial extension** (10 conversations, 5,882 turns, 630 QA pairs). We use LoCoMo as the controlled long-horizon memory benchmark and extend it with multimodal observation writes and adversarial injections. We evaluate on three splits: clean (no attacks), poisoned (attacks injected at random positions), and poisoned\_cross\_topic (attacks in an earlier topic, evaluated on a later topic). This setting is controlled rather than fully naturalistic, but it allows causal analysis of memory poisoning over long horizons.
+We use two complementary evaluation settings.
 
-**Adversarially augmented MM-BrowseComp** (73 cases with live-fetched observation traces). We construct an adversarial extension of MM-BrowseComp by injecting attacks into memory-ingestion traces rather than altering the underlying task labels or gold answers. This benchmark provides the higher-realism multimodal setting. Questions are fundamentally visual; vision augmentation (VLM-extracted facts from question images) is applied, and attacks are injected into the corresponding observation traces.
+#### LoCoMo-10 with multimodal adversarial extension
 
-### 4.2 Metrics
+LoCoMo provides a controlled long-horizon QA benchmark over multi-session conversations. We augment it with multimodal observation writes and adversarial injections. This benchmark is controlled rather than fully naturalistic, but it allows causal analysis of poisoning over long horizons.
 
-- **BCU (Benign Completion Under Attack)** = answer\_consistent × (1 − attack\_survived). Primary metric: higher is better.
-- **ASR (Attack Success Rate)** = fraction of poisoned retrievals containing adversarial content. Lower is better.
-- **ASR\_behavioral** = LLM-judge ASR (BehavioralAttackJudge); more accurate than regex matching, adaptive-attack robust. Reported alongside string-based ASR when `--llm-eval` is set.
-- **Conflict quarantine / case** = write-gate interventions per case.
-- **DMC (Derived Memory Corruption)** = planning items that descend from attack lineage through summarization.
+We use three LoCoMo-based settings:
+- **Main suite:** untrusted-channel memory-poisoning attacks,
+- **VPI-only suite:** Visual Prompt Injection in isolation,
+- **multimodal robustness suite:** missing/noisy modality stress.
 
-### 4.3 Attack Injection
+#### Adversarially augmented MM-BrowseComp
 
-All attack positions are sampled uniformly at random (`--position-mode random`) to prevent positional overfitting. Prior work with fixed injection positions (e.g., always at turn 2) may report artificially optimistic or pessimistic results depending on the defense's consolidation schedule. We report results across seeds {0, 1, 2}.
+We build a browsing-style multimodal memory benchmark from observation traces derived from MM-BrowseComp, augmented with VLM-backed image observations and separate clean and adversarial tracks. This benchmark is more realistic as a browsing-memory setting, but as our results show, it is also much harsher and currently closer to an external stress test than a mature main-table benchmark.
 
-Stateful trust and anomaly modules are re-instantiated per evaluation case. This avoids leakage of posterior trust or anomaly baselines across conversations, which would otherwise invalidate long-horizon security evaluation.
+### 4.2 Attack Families
 
-### 4.4 Conditions
+The main LoCoMo suite includes:
+- `constructor_launder`
+- `label_gaming`
+- `ocr_injection`
+- `vision_caption_injection`
+- `visual_prompt_injection`
+- `fact_overwrite_injection`
+- `adaptive_nl_evasion`
+- `buried_payload`
 
-| Condition | Role in the study |
-|---|---|
-| ShortContext | No persistent memory |
-| MMA retrieve-time | Retrieve-time reliability scoring only; no write defense |
-| H1 ConstructorGuard | Write-time quarantine + guarded consolidation |
-| H2 MonotoneLedger | Provenance-monotone trust propagation |
-| H3 ActionFirewall | Action-time corroboration requirement |
-| **SAGE-Mem** | Full write-time multimodal defense: Bayesian trust + anomaly detection + consistency graph + VPI defense |
+The MM-BrowseComp adversarial track currently uses a browsing-native `fact_overwrite_injection` calibration. This is a realistic web-style correction attack, but the resulting benchmark remains highly saturated.
 
-We treat the proposed system as a single method: **SAGE-Mem** refers to the full v2 architecture throughout the paper. H1-H3 are not competing full systems; they are mechanism-level ablations that isolate the contribution of particular design choices.
+### 4.3 Metrics
 
-**What we do not compare against externally:** General-purpose memory systems (mem0, Letta, Hindsight) do not provide adversarial write-time memory defense. Their inclusion would demonstrate attack feasibility, not relative security performance. The appropriate reference baseline is MMA, which represents retrieve-time defense without write-time governance.
+We evaluate the memory lifecycle directly.
+
+This metric choice is intentional. A large fraction of prior robustness work around context corruption, prompt injection, and retrieval poisoning evaluates only the final retrieved context or final answer. That is appropriate for retrieval-time defenses, but insufficient for a write-time memory system whose main purpose is to prevent unsupported observations from becoming durable state in the first place. Our primary metrics therefore emphasize admission, belief formation, and retrieval contamination before turning to downstream completion.
+
+#### Primary mechanism metrics
+
+- **Attack write admission rate:** fraction of injected attacks that enter planning memory.
+- **Attack belief formation rate:** fraction of cases where attack-derived content hardens into durable planning-memory belief.
+- **Attack retrieval rate:** fraction of poisoned retrievals containing attack-derived content.
+- **False belief rate:** fraction of QA evaluations whose retrieved beliefs descend from poisoned lineage.
+
+#### Primary downstream utility metric
+
+- **BCU (Benign Completion Under Attack):**
+\[
+\mathrm{BCU}
+=
+\mathbb{E}\left[\mathbf{1}[\text{answer consistent} \land \neg \text{attack survived}]\right].
+\]
+
+This is a per-QA joint metric. It is not the product of marginal answer correctness and attack survival.
+
+#### Secondary metrics
+
+- **ASR:** retrieval-time attack survival.
+- **ASR\(_\text{behavioral}\):** LLM-judge behavioral attack success when a raw attack item is directly retrieved.
+- **Belief traceability:** mean fraction of retrieved belief items with usable support lineage; reported as `N/A` when no belief items are retrieved.
+- **Write quarantine per case:** intervention frequency; informative, but not inherently “higher is always better.”
+
+### 4.4 Compared Conditions
+
+The main comparisons are:
+- **ShortContext:** no persistent memory.
+- **MMA:** retrieval-time reliability scoring baseline.
+- **RSum:** consolidation baseline without guard.
+- **H1 / H2 / H3:** mechanism-level internal baselines.
+- **SAGE-Mem v2:** final combined governed-memory method.
+
+The right comparison is not “memory platform versus memory platform”; it is **retrieval-time defense versus write-time governed memory**.
 
 ---
 
-## 5. Results (to be filled after full runs)
+## 5. Results
 
-### 5.1 Main LoCoMo Table
+### 5.1 Main LoCoMo Result
 
-*(Run: `python run_eval.py --sage-v2 --seeds 0 1 2 --out results/sagememv2_main.json`)*
+*Run: `paper_main_full_v1`*
 
-| Condition | BCU clean | BCU poison | ASR poison | ASR\_behavioral | DMC rate | Write quarantine / case | Conflict quarantine / case | n |
+The main LoCoMo result is the strongest evidence in the paper.
+
+| Method | BCU clean | BCU poison | Write ASR | Belief ASR | Retrieval | False belief | ASR | Write q/case |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| ShortContext | | | | | | | | |
-| MMA retrieve-time | | | | | | | | |
-| H1 ConstructorGuard | | | | | | | | |
-| H2 MonotoneLedger | | | | | | | | |
-| H3 ActionFirewall | | | | | | | | |
-| **SAGE-Mem** | | | | | | | | |
+| MMA | 0.7500 | 0.6417 | 1.0000 | 0.0000 | 0.1333 | 0.0000 | 0.1333 | 0.0 |
+| RSum | 0.4050 | 0.4533 | 0.0000 | 0.0000 | 0.0067 | 0.0000 | 0.0067 | 0.0 |
+| H1 | 0.3950 | 0.4517 | 0.0000 | 0.0000 | 0.0033 | 0.0000 | 0.0033 | 5.43 |
+| H2 | 0.3850 | 0.4533 | 0.0000 | 0.0000 | 0.0017 | 0.0000 | 0.0017 | 1.0 |
+| H3 | 0.2400 | 0.2133 | 0.0000 | 0.0000 | 0.0667 | 0.0000 | 0.0667 | 3.0 |
+| **SAGE-Mem** | **0.3950** | **0.4600** | **0.0000** | **0.0000** | **0.0000** | **0.0000** | **0.0000** | **5.43** |
 
-**Reading:** ASR\_behavioral is the primary attack-success metric. DMC measures whether an attack survives not only as a retrieved raw item, but as corruption of derived planning memory through summarization or rewriting.
+**What this shows.**
+
+1. **SAGE-Mem’s main strength is write-time containment.** It eliminates attack admission into planning memory on the main suite and drives retrieval contamination to zero.
+2. **MMA’s main strength is utility preservation.** It retains substantially higher BCU on both clean and poisoned conditions.
+3. **Write-time governance is not the same as “more utility.”** The main result supports a tradeoff story: SAGE-Mem protects the memory state; MMA preserves more immediate QA performance.
+
+This is the paper’s most defensible central result.
 
 ### 5.2 Visual Prompt Injection
 
-*(Run: `python run_eval.py --attacks visual_prompt_injection --sage-v2 --disable-cross-topic`)*
+*Run: `paper_vpi_full_v1`*
 
-| Condition | BCU clean | ASR (VPI) | DMC rate | Cross-modal quarantine / case |
-|---|---:|---:|---:|
-| MMA retrieve-time | | | |
-| H1 ConstructorGuard | | | |
-| MonotoneLedger | | | |
-| **SAGE-Mem** | | | |
+VPI is the cleanest multimodal result in the paper.
 
-**Expected finding:** multi-source trust can be exploited by VPI, because OCR and caption channels derived from the same image are not conditionally independent. SAGE-Mem inverts this failure mode: agreement on directive content across linked visual channels becomes a quarantine trigger rather than a trust bonus.
-
-### 5.3 Per-Attack Breakdown
-
-*(Run individual attacks with `--attacks <name>` to produce per-family rows)*
-
-| Attack family | MMA ASR | H1 ASR | H2 ASR | H3 ASR | SAGE-Mem ASR |
-|---|---:|---:|---:|---:|---:|
-| Constructor launder | | | | | |
-| Label gaming | | | | | |
-| OCR injection | | | | | |
-| Vision caption injection | | | | | |
-| Visual Prompt Injection | | | | | |
-| Adaptive NL evasion | | | | | |
-| Buried payload | | | | | |
-
-`Semantic mimicry` should be reported separately as an explicit threat-model limitation rather than folded into the main ASR claim, since authenticated user turns are intentionally treated as a trust anchor.
-
-### 5.4 Adversarially Augmented MM-BrowseComp
-
-*(Run with `--run-mm-browsecomp` using observation-trace-augmented cases)*
-
-| Condition | BCU clean | BCU poison | ASR poison | ASR\_behavioral | Write quarantine / case | n |
+| Method | BCU clean | BCU poison | Write ASR | Retrieval | ASR | Write q/case |
 |---|---:|---:|---:|---:|---:|---:|
-| MMA retrieve-time | | | | | | |
-| H1 ConstructorGuard | | | | | | |
-| H2 MonotoneLedger | | | | | | |
-| H3 ActionFirewall | | | | | | |
-| **SAGE-Mem** | | | | | | |
+| MMA | 0.7650 | 0.7117 | 1.0000 | 0.0700 | 0.0700 | 0.0 |
+| RSum | 0.3800 | 0.3900 | 0.0000 | 0.0000 | 0.0000 | 0.0 |
+| H1 | 0.3700 | 0.3800 | 0.0000 | 0.0000 | 0.0000 | 2.0 |
+| H2 | 0.3700 | 0.3700 | 0.0000 | 0.0000 | 0.0000 | 0.0 |
+| H3 | 0.2400 | 0.2700 | 0.0000 | 0.0000 | 0.0000 | 0.0 |
+| **SAGE-Mem** | **0.3800** | **0.3800** | **0.0000** | **0.0000** | **0.0000** | **2.0** |
 
-This table supports the external-validity claim: the defense is not only effective in a controlled synthetic extension, but also in a browsing-style multimodal memory setting with realistic observation traces.
-### 5.5 Overhead
+**What this shows.**
 
-*(Measure with `time` and token-count logging)*
+1. A retrieval-only system can still look strong under VPI on utility while admitting every attack write.
+2. SAGE-Mem fully suppresses VPI in the current benchmark regime.
+3. This result supports the specific multimodal claim that dependent OCR/caption evidence should not be treated as independent corroboration.
 
-| Tier | Components active | Latency vs. unguarded | Cost per 1k writes |
-|---|---|---|---|
-| Regex-only | Trust gate + anomaly + consistency graph | ~1.1x | $0 |
-| + LLM guard (Tier 1) | + MultiAgentGuard (2 API calls / write) | ~Xx | ~$Y |
-| + Tier 2 escalation | + Tier 2 on disagreement (~Z% of writes) | ~Xx | ~$Y |
+This is the strongest workshop-facing novelty result.
 
-**Claim to make:** The anomaly detector, consistency graph, and Bayesian trust update add negligible overhead (no API calls). The LLM guard is the dominant cost and is applied selectively. Report the per-tier breakdown honestly rather than a single "1.2x" claim.
+### 5.3 Noisy/Missing-Modality Robustness
+
+*Run: `paper_mmrobust_full_v1`*
+
+The multimodal robustness run justifies the claim that the full architecture matters most when perception is degraded.
+
+| Method | BCU clean | BCU poison | Write ASR | Belief ASR | Retrieval | ASR | Write q/case |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| MMA | 0.7117 | 0.5483 | 1.0000 | 0.0000 | 0.2600 | 0.2600 | 0.0 |
+| H1 | 0.3983 | 0.4500 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 5.77 |
+| H2 | 0.3917 | 0.4450 | 0.0000 | 0.1000 | 0.0000 | 0.0000 | 1.0 |
+| H3 | 0.2500 | 0.2300 | 0.0111 | 0.1000 | 0.1000 | 0.1000 | 3.7 |
+| NoBayes | 0.3950 | 0.4433 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 25.57 |
+| NoAnom | 0.3950 | 0.4450 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 10.80 |
+| NoCons | 0.3967 | 0.4433 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 12.23 |
+| **SAGE-Mem** | **0.3950** | **0.4367** | **0.0111** | **0.0000** | **0.0050** | **0.0050** | **11.03** |
+
+**What this shows.**
+
+1. SAGE-Mem remains near-zero on retrieval contamination even under degraded multimodal evidence.
+2. The Bayes component matters here, not because it changes ASR dramatically, but because it reduces over-quarantine relative to `NoBayes`.
+3. This is the best evidence that the full governed-memory stack is not just a static filter, but a calibration mechanism for noisy multimodal settings.
+
+### 5.4 Internal Ablations
+
+*Run: `paper_ablations_full_v1`*
+
+On the main suite, the named v2 ablations do **not** separate strongly. `NoBayes`, `NoAnomaly`, `NoConsistency`, and full SAGE-Mem are numerically identical on the core write/retrieval metrics and nearly identical on utility:
+
+| Method | BCU clean | BCU poison | Write ASR | Retrieval | ASR | Write q/case |
+|---|---:|---:|---:|---:|---:|---:|
+| NoBayes | 0.3900 | 0.4350 | 0.0000 | 0.0000 | 0.0000 | 5.30 |
+| NoAnomaly | 0.3900 | 0.4350 | 0.0000 | 0.0000 | 0.0000 | 5.30 |
+| NoConsistency | 0.3900 | 0.4350 | 0.0000 | 0.0000 | 0.0000 | 5.30 |
+| **SAGE-Mem** | **0.3900** | **0.4350** | **0.0000** | **0.0000** | **0.0000** | **5.30** |
+
+This weakens any claim that the paper empirically isolates each submodule on the main benchmark. The correct claim is narrower:
+
+- the governed-memory design is supported strongly,
+- submodule separability is benchmark-dependent,
+- Bayes/noise calibration is best justified by the multimodal robustness run, not the main suite.
+
+### 5.5 MM-BrowseComp: Clean vs Adversarial
+
+After fixing the earlier VLM-captioning bug, the MM-BrowseComp clean and adversarial reruns are now technically correct:
+
+- clean run `paper_mmclean_full_v4` uses `vision_caption_mode=openai` and took `433s`,
+- adversarial run `paper_mmadv_full_v3` uses the same image-caption path and took `431s`,
+- both use `247` filtered cases.
+
+#### Clean MM-BrowseComp
+
+| Method | BCU clean | Answered rate |
+|---|---:|---:|
+| ShortContext | 0.3158 | 1.0000 |
+| MMA | 0.3158 | 1.0000 |
+| RSum | 0.2955 | 1.0000 |
+| H1 | 0.2955 | 1.0000 |
+| H2 | 0.2955 | 1.0000 |
+| H3 | 0.3117 | 1.0000 |
+| **SAGE-Mem** | **0.2834** | **0.9919** |
+
+#### Adversarial MM-BrowseComp
+
+| Method | BCU poison | Write ASR | Belief ASR | Retrieval | False belief | ASR |
+|---|---:|---:|---:|---:|---:|---:|
+| ShortContext | 0.0000 | 1.0000 | 0.0000 | 1.0000 | 0.0000 | 1.0000 |
+| MMA | 0.0000 | 1.0000 | 0.0000 | 1.0000 | 0.0000 | 1.0000 |
+| RSum | 0.0000 | 1.0000 | 0.3603 | 0.9960 | 0.0000 | 0.9960 |
+| H1 | 0.0000 | 1.0000 | 0.3603 | 0.9960 | 0.0000 | 0.9960 |
+| H2 | 0.0000 | 1.0000 | 0.3603 | 1.0000 | 0.0000 | 1.0000 |
+| H3 | 0.0000 | 1.0000 | 0.3603 | 1.0000 | 0.0000 | 1.0000 |
+| **SAGE-Mem** | **0.0000** | **1.0000** | **0.0000** | **0.9595** | **0.1309** | **0.9595** |
+
+**What this shows.**
+
+1. The clean benchmark is now usable.
+2. The adversarial benchmark remains highly saturated.
+3. Under browsing-style `fact_overwrite_injection`, **every method admits the attack at write time**.
+4. SAGE-Mem modestly reduces downstream retrieval contamination relative to MMA (`0.9595` vs `1.0000`), but does not prevent end-to-end collapse.
+5. The current browsing-specific limitation is therefore a **write-time trust calibration failure**, not only a retrieval failure.
+
+**Paper implication.** MM-BrowseComp is useful as an external stress test and as evidence of a real limitation in the current trust policy for browsing-derived `tool_output_text`, but it is **not strong enough to anchor the main empirical claim**.
 
 ---
 
-## 6. Novelty Claim (Honest Version)
+## 6. What the Experiments Actually Support
 
-SAGE-Mem is **not** the first write-time defense. The defensible novelty is:
+The strongest supported contribution is not “SAGE-Mem is the best memory system overall.” That claim would be false.
 
-1. **Visual Prompt Injection** as a new attack class that no prior work benchmarks or defends against. VPI is qualitatively different from prior multimodal attacks because it exploits multi-source consensus rather than a single channel.
+The strongest supported claim is:
 
-2. **Cross-modal consistency defense** that detects false corroboration — a defense mechanism with no prior instantiation in the agent memory literature.
+> **SAGE-Mem provides substantially stronger write-time containment and memory-state integrity than retrieval-time filtering on controlled long-horizon multimodal memory benchmarks, especially under multimodal prompt injection and noisy/missing modalities, albeit at a utility cost relative to MMA.**
 
-3. **End-to-end calibration** with no hardcoded scalars: all thresholds are data-driven (Bayesian posterior, conformal prediction, percentile-based anomaly threshold).
+This claim is supported by:
+- zero write admission and zero retrieval contamination on the LoCoMo main suite,
+- zero VPI survival on the VPI-only suite,
+- near-zero survival under noisy/missing-modality stress,
+- lower false-belief retrieval than simpler baselines,
+- a meaningful Bayes calibration effect in the multimodal robustness setting.
 
-4. **Behavioral evaluation** via LLM judge, replacing circular regex-based ASR detection.
-
-5. **Bounded consistency graph** (O(128) sliding window) as a practical multi-turn coherence mechanism for long-horizon agents.
-
-The correct workshop framing is: *we extend write-time memory defense to multimodal agentic memory, introduce VPI as a new cross-modal threat, and show that naive multi-source trust can amplify rather than mitigate multimodal poisoning.*
-
----
-
-## 7. Limitations
-
-- **Source attribution is assumed correct.** A compromised orchestrator that relabels arbitrary text as `source_type="user"` defeats all channel-based trust. Cryptographic source attestation is future work.
-- **Semantic mimicry is unblockable.** Any system that must accept user corrections cannot fully block a malicious user.
-- **VLM visual extraction is not evaluated with end-to-end adversarial image generation.** VPI is modeled at the memory-ingestion level; a full perceptual robustness study would require actual adversarial images passed through OCR and VLM pipelines.
-- **Controlled versus naturalistic multimodality.** The LoCoMo extension is a controlled stress test rather than a native multimodal interaction log; MM-BrowseComp provides the realism anchor, but neither benchmark fully covers production multimodal agents.
-- **Potential utility-robustness tradeoff.** Any write-time defense can reduce benign recall if thresholds are too conservative. This is why BCU-clean, BCU-poison, and per-case quarantine statistics must all be reported.
-- **LLM guard cost.** The MultiAgentGuard makes 2 API calls per write (potentially 3 on escalation). This is not 1.2x overhead; it is a significant per-write cost that must be reported per-tier.
+What the results do **not** support:
+- that SAGE-Mem beats MMA overall,
+- that every v2 submodule is independently validated on the main suite,
+- that browsing-style multimodal memory is solved.
 
 ---
 
-## References (partial)
+## 7. Reviewer-Resistant Positioning
 
-- AgentPoison (2024): Long-term memory as a persistent attack surface
-- MINJA (2025): Query-only memory injection without direct database access
-- Zombie Agents (2026): Self-evolving memory reinforces single malicious write
-- A-MemGuard (2025): Proactive defense parallel; closest prior work
-- GuardAgent (2024): Dedicated guard model justification
-- MemTrust (2026): Zero-trust write philosophy
-- One Pic is All it Takes (2025): Single poisoned image corrupts visual retrieval
-- Angelopoulos & Bates (2022): Conformal prediction coverage guarantees
+### 7.1 What is genuinely novel
+
+The novelty is not simply “another write-time filter.” The defensible novelty is the combination of:
+
+1. **Lifecycle evaluation for agent memory:** write admission, belief formation, retrieval contamination, and downstream completion are measured separately.
+2. **Multimodal dependence modeling:** OCR and caption outputs from the same image are treated as dependent evidence rather than rewarded as independent corroboration.
+3. **Typed memory with sufficiency-gated belief promotion:** the system distinguishes observation storage from durable belief formation.
+4. **A browsing-style external stress test:** MM-BrowseComp exposes a limitation of current write-time trust policies rather than being silently omitted.
+
+### 7.2 What reviewers may attack
+
+1. **Utility gap versus MMA.**
+   - This is real and must be acknowledged, not buried.
+2. **Controlled LoCoMo multimodality.**
+   - The LoCoMo multimodal setting is a controlled extension, not a fully natural multimodal agent log.
+3. **MM-BrowseComp saturation.**
+   - The current adversarial browsing benchmark remains too hard to serve as a headline result.
+4. **Submodule ablations on the main suite.**
+   - The main suite does not separate Bayes/anomaly/consistency strongly.
+5. **Behavioral LLM metrics.**
+   - These should remain secondary and be reported only when applicable.
+
+The current draft should preempt these concerns explicitly.
+
+---
+
+## 8. Limitations
+
+- **Trusted orchestration assumption.** Source labels are assumed correct.
+- **Utility tradeoff.** Retrieval-time baselines preserve more immediate QA utility.
+- **Controlled versus naturalistic multimodality.** LoCoMo is controlled; MM-BrowseComp is more realistic but harsher and not yet fully discriminative.
+- **Browsing-specific limitation.** The current trust policy does not block `fact_overwrite_injection` in MM-BrowseComp.
+- **Module separability is setting-dependent.** Bayes is justified most clearly under noisy/missing multimodal evidence, not the main suite.
+- **Behavioral LLM evaluation is secondary.** It is not the core evidence for this paper.
+
+---
+
+## 9. High-Priority Additional Experiments
+
+### High priority for acceptance
+
+1. **Per-attack breakdown on the main LoCoMo suite.**
+   - Why: isolates where SAGE-Mem wins and where it merely ties.
+   - Claim supported: robustness is not driven by only one attack family.
+
+2. **Variance / confidence intervals across seeds.**
+   - Why: the workshop audience will care whether gains are stable.
+   - Claim supported: robustness improvements are not seed artifacts.
+
+3. **Pareto plot: BCU poison vs attack write admission or retrieval contamination.**
+   - Why: makes the write-time-versus-utility tradeoff reviewer-legible.
+   - Claim supported: SAGE-Mem occupies a different robustness regime rather than merely underperforming.
+
+4. **Per-modality breakdown in the multimodal robustness run.**
+   - Why: clarifies whether failures are OCR-driven, caption-driven, or mixed.
+   - Claim supported: the benchmark is genuinely multimodal, not just text corruption with image labels.
+
+### Nice to have
+
+5. **Cost/latency table for guard usage.**
+   - Why: SCALE workshop reviewers may care about systems practicality.
+
+6. **Length sensitivity / retrieval-budget sensitivity.**
+   - Why: would strengthen the claim that cleaner memory reduces downstream burden.
+
+7. **Browsing-specific trust ablation for MM-BrowseComp.**
+   - Why: this would convert the current negative result into a sharper methodological lesson.
+
+---
+
+## 10. Citation Placeholders
+
+Insert real citations for:
+- memory poisoning in agent systems,
+- retrieval corruption / prompt injection,
+- multimodal prompt injection,
+- memory-augmented and long-horizon agent evaluation,
+- benchmark methodology for robustness and stress testing.
+
+Do not fabricate citations. The current draft should use explicit placeholders until the final bibliography is assembled.

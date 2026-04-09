@@ -78,6 +78,31 @@ Do NOT speculate. Format as clear, concise factual statements.\
 """
 
 _JSON_RE = re.compile(r'\{[^{}]*"class"[^{}]*\}', re.DOTALL)
+_JSON_FACTS_RE = re.compile(r'\{[^{}]*"facts"[^{}]*\}', re.DOTALL)
+
+_FACT_EXTRACT_SYSTEM = """\
+You are a precise atomic-fact extractor for a long-term memory system.
+
+Given a passage from a trusted source, extract every verifiable atomic fact.
+
+Output ONLY compact JSON (no markdown fences, no explanation):
+{"facts": [{"type": "...", "value": "...", "context": "..."}]}
+
+Fact types:
+- "date"     : any specific temporal reference (e.g. "January 2019", "Q3 2022", "March 15 2023")
+- "name"     : proper nouns — people, places, organisations, products
+- "number"   : specific quantities with units or meaningful context (e.g. "42 employees", "$3.5M")
+- "event"    : a specific occurrence or action (e.g. "Alice joined ACME Corp")
+- "relation" : a relationship between two named entities (e.g. "Alice is Bob's manager")
+
+Rules:
+- "value": verbatim excerpt from the text, trimmed of whitespace
+- "context": ≤10 words of surrounding context for disambiguation (omit if obvious)
+- Maximum 15 facts per passage
+- Skip stopwords, articles, generic terms ("the meeting", "a report")
+- Skip uncertain claims ("might", "possibly", "approximately")
+- Dates must be specific enough to be useful (not just "recently" or "sometime")\
+"""
 
 
 @dataclass
@@ -390,6 +415,94 @@ class WriteTimeGuard:
             return out
         except Exception:
             return ""
+
+    def extract_facts(self, text: str) -> list:
+        """
+        Extract structured atomic facts from a trusted text passage using the LLM.
+
+        Returns a list of dicts with keys: type, value, context.
+        Falls back to [] on error or if text is too short.
+
+        This replaces the brittle regex-based approach: the LLM handles varied
+        date formats, multi-word names, contextual numbers, and cross-lingual text
+        without hard-coded patterns.  A separate system prompt (stateless sandbox)
+        prevents instruction confusion with the main agent.
+        """
+        text_stripped = text.strip()
+        if len(text_stripped) < 10:
+            return []
+
+        # Re-use the same LRU cache with a distinct key prefix
+        key = "FACTS:" + self._cache_key(text_stripped, "fact_extract")
+        if key in self._cache:
+            self._cache_hits += 1
+            cached = self._cache[key]
+            # Cached value is stored as GuardResult; we repurpose the extract field
+            # as a JSON string for facts.
+            try:
+                return json.loads(cached.extract)
+            except Exception:
+                return []
+
+        self._calls += 1
+        raw_facts: list = []
+        try:
+            if self._backend == "anthropic":
+                resp = self._client.messages.create(
+                    model=self.model,
+                    max_tokens=400,
+                    system=_FACT_EXTRACT_SYSTEM,
+                    messages=[{"role": "user", "content": text_stripped[:2000]}],
+                )
+                raw_text = resp.content[0].text
+            else:  # openai
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=400,
+                    timeout=30,
+                    messages=[
+                        {"role": "system", "content": _FACT_EXTRACT_SYSTEM},
+                        {"role": "user", "content": text_stripped[:2000]},
+                    ],
+                )
+                raw_text = resp.choices[0].message.content or ""
+
+            # Parse JSON — accept {"facts": [...]} wrapper
+            raw_text = raw_text.strip()
+            if raw_text.startswith("```"):
+                raw_text = raw_text.split("```")[1].lstrip("json\n").rstrip()
+            try:
+                parsed = json.loads(raw_text)
+            except json.JSONDecodeError:
+                m = _JSON_FACTS_RE.search(raw_text)
+                parsed = json.loads(m.group()) if m else {}
+
+            raw_facts = parsed.get("facts", [])
+            if not isinstance(raw_facts, list):
+                raw_facts = []
+            # Validate and normalise
+            valid = []
+            allowed_types = {"date", "name", "number", "event", "relation"}
+            for f in raw_facts[:15]:
+                if not isinstance(f, dict):
+                    continue
+                t = str(f.get("type", "")).strip().lower()
+                v = str(f.get("value", "")).strip()
+                if t not in allowed_types or not v:
+                    continue
+                valid.append({
+                    "type": t,
+                    "value": v,
+                    "context": str(f.get("context", "")).strip()[:80],
+                })
+            raw_facts = valid
+
+        except Exception:
+            raw_facts = []
+
+        # Cache as a GuardResult (extract field stores JSON-encoded list)
+        self._lru_put(key, GuardResult("DATA", 0.0, json.dumps(raw_facts), "", False))
+        return raw_facts
 
     def stats(self) -> dict:
         total = self._calls + self._cache_hits

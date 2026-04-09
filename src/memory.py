@@ -74,6 +74,11 @@ class MemoryItem:
     fact_value: Optional[str] = None
     multimodal_relation: Optional[str] = None
     attack_family: Optional[str] = None
+    quality_score: float = 1.0
+    # Cached at write time (SAGEMemory only): True if belief promotion was
+    # satisfied when the item was written. Prevents re-running the check at
+    # retrieval time after consolidation has discarded parent items.
+    belief_traceable: bool = True
 
     def is_attacker_controlled(self) -> bool:
         return self.source_type == "attacker"
@@ -199,6 +204,7 @@ _DEFAULT_SOURCE_CRED = {
     "self_summary": 0.45,
     "attacker": 0.10,
     "tool_echo": 0.20,
+    "protected_fact": 0.88,  # extracted from trusted sources, never consolidated
 }
 
 def default_source_cred(source_type: str, cfg=None) -> float:
@@ -230,6 +236,136 @@ def extract_directive(text: str) -> Optional[Tuple[int, str, str]]:
     if not m:
         return None
     return int(m.group(1)), m.group(2).lower(), m.group(3).lower()
+
+
+# ── Fact extraction regexes ──────────────────────────────────────────────────
+_DATE_RE = re.compile(
+    r"\b(\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    r"(?:\s+\d{2,4})?|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
+    r"|(?:mon|tue|wed|thu|fri|sat|sun)\w*"
+    r"|\d{1,2}:\d{2}\s*(?:am|pm))\b",
+    re.IGNORECASE,
+)
+_NAME_RE = re.compile(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b")
+_NUMBER_RE = re.compile(r"\b(\d{1,5})\b")
+
+_TRUSTED_SOURCES = {"user", "tool_output_text"}
+
+def extract_key_facts(items: List["MemoryItem"], guard=None) -> List[dict]:
+    """
+    Extract key facts from trusted memory items.
+
+    When a WriteTimeGuard is provided, uses LLM-based extraction via the guard's
+    stateless sandbox — robust to varied date formats, multi-word names, and
+    contextual numbers without brittle pattern matching.
+
+    When guard is None (or LLM unavailable), falls back to the regex baseline
+    so unit tests without API keys still function.
+
+    Returns list of dicts with keys: fact_type, value, source_text, source_type,
+    parent_id.  Only extracts from trusted sources — never from attacker-controlled
+    or quarantined items.
+    """
+    facts: List[dict] = []
+    seen_values: set = set()
+
+    # ── Filter to trusted, non-quarantined items ──────────────────────────────
+    trusted_items = []
+    for it in items:
+        if it.source_type not in _TRUSTED_SOURCES:
+            continue
+        if it.trust < 0.60:
+            continue
+        if it.partition == "audit":
+            continue
+        text = re.sub(r"\s+", " ", str(it.text or "")).strip()
+        if not text or text.lower().startswith("summary:"):
+            continue
+        trusted_items.append((it, text))
+
+    # ── LLM path (preferred): delegate to the guard's stateless LLM ──────────
+    if guard is not None and hasattr(guard, "extract_facts"):
+        _llm_type_to_fact_type = {
+            "date": "date", "name": "name", "number": "number",
+            "event": "event", "relation": "relation",
+        }
+        for it, text in trusted_items:
+            try:
+                llm_facts = guard.extract_facts(text)
+            except Exception:
+                llm_facts = []
+            for f in llm_facts:
+                ftype = _llm_type_to_fact_type.get(str(f.get("type", "")).lower(), "fact")
+                val = str(f.get("value", "")).strip()
+                if not val:
+                    continue
+                dedup_key = (ftype, val.lower())
+                if dedup_key in seen_values:
+                    continue
+                seen_values.add(dedup_key)
+                facts.append({
+                    "fact_type": ftype,
+                    "value": val,
+                    "source_text": text[:120],
+                    "source_type": it.source_type,
+                    "parent_id": it.item_id,
+                })
+        return facts
+
+    # ── Regex fallback (no guard / no API key) ────────────────────────────────
+    for it, text in trusted_items:
+        # Extract dates
+        for m in _DATE_RE.finditer(text):
+            val = m.group(0).strip()
+            key = ("date", val.lower())
+            if key not in seen_values:
+                seen_values.add(key)
+                facts.append({
+                    "fact_type": "date",
+                    "value": val,
+                    "source_text": text[:120],
+                    "source_type": it.source_type,
+                    "parent_id": it.item_id,
+                })
+
+        # Extract proper names (capitalized, 3+ chars)
+        for m in _NAME_RE.finditer(text):
+            val = m.group(1).strip()
+            if val.lower() in {"the", "this", "that", "there", "their",
+                                "they", "what", "when", "where", "who",
+                                "how", "hey", "wow", "glad", "yeah",
+                                "going", "gonna", "thanks", "thank"}:
+                continue
+            key = ("name", val.lower())
+            if key not in seen_values:
+                seen_values.add(key)
+                facts.append({
+                    "fact_type": "name",
+                    "value": val,
+                    "source_text": text[:120],
+                    "source_type": it.source_type,
+                    "parent_id": it.item_id,
+                })
+
+        # Extract numbers (1-4 digits, meaningful range)
+        for m in _NUMBER_RE.finditer(text):
+            val = m.group(1)
+            num = int(val)
+            if num < 2 or num > 9999:
+                continue
+            key = ("number", val)
+            if key not in seen_values:
+                seen_values.add(key)
+                facts.append({
+                    "fact_type": "number",
+                    "value": val,
+                    "source_text": text[:120],
+                    "source_type": it.source_type,
+                    "parent_id": it.item_id,
+                })
+
+    return facts
 
 
 def summarize_factual_snippets(
@@ -339,6 +475,7 @@ class BaseMemory:
         fact_value: Optional[str] = None,
         multimodal_relation: Optional[str] = None,
         attack_family: Optional[str] = None,
+        quality_score: Optional[float] = None,
     ) -> int:
         emb = self.embedder.embed(text)
         t = _clip01(default_source_cred(source_type) if trust is None else float(trust))
@@ -360,6 +497,7 @@ class BaseMemory:
             fact_value=str(fact_value) if fact_value is not None else None,
             multimodal_relation=str(multimodal_relation) if multimodal_relation is not None else None,
             attack_family=str(attack_family) if attack_family is not None else None,
+            quality_score=_clip01(1.0 if quality_score is None else float(quality_score)),
         )
         self._next_id += 1
         if partition == "audit":
@@ -460,8 +598,11 @@ class MMARetrieveTimeReliabilityMemory(BaseMemory):
         if lbl is None:
             consensus = 1.0
         else:
-            agree = 0
-            disagree = 0
+            # Source Diversity Weighting: count unique agreeing channels, not raw item count.
+            # This prevents label_gaming (attacker floods memory with copies from one channel)
+            # from inflating consensus score. 10 items from 1 channel = 1 agreeing channel.
+            agree_channels: set = set()
+            disagree_channels: set = set()
             for other in self.items:
                 if other.item_id == it.item_id:
                     continue
@@ -469,9 +610,11 @@ class MMARetrieveTimeReliabilityMemory(BaseMemory):
                 if olbl is None:
                     continue
                 if olbl == lbl:
-                    agree += 1
+                    agree_channels.add(other.channel_id)
                 else:
-                    disagree += 1
+                    disagree_channels.add(other.channel_id)
+            agree = len(agree_channels)
+            disagree = len(disagree_channels)
             consensus = (1.0 + agree) / (1.0 + agree + disagree)
 
         rel = self.w_source * src + self.w_decay * decay + self.w_consensus * consensus
@@ -567,6 +710,45 @@ class RecursiveSummarizationMemory(BaseMemory):
         buf_items = [id_to_item[i] for i in self._buffer if i in id_to_item]
         if not buf_items:
             return
+
+        # ── Fact Preservation: extract key facts BEFORE compression ──────────
+        # Extract dates, names, numbers from trusted items in the buffer.
+        # Store each as a protected_fact item that is NEVER put in _buffer,
+        # so it will never be consolidated away. This preserves specific
+        # factual details (dates, names, numbers) that would otherwise be
+        # lost during summarization — recovering BCU clean without sacrificing
+        # attack defense (only trusted sources generate protected facts).
+        facts = extract_key_facts(buf_items)
+        protected_ids = []
+        seen_fact_values = {
+            it.fact_value
+            for it in self.items
+            if it.source_type == "protected_fact" and it.fact_value
+        }
+        for fact in facts:
+            if fact["value"] in seen_fact_values:
+                continue  # already protected, skip duplicate
+            seen_fact_values.add(fact["value"])
+            fact_text = (
+                f"PROTECTED_FACT[{fact['fact_type']}]: {fact['value']} "
+                f"— from: {fact['source_text'][:80]}"
+            )
+            # Write directly to BaseMemory to bypass _buffer append
+            fact_id = super(RecursiveSummarizationMemory, self).write(
+                text=fact_text,
+                source_type="protected_fact",
+                channel_id=f"fact_{fact['fact_type']}",
+                step=step,
+                parent_ids=(fact["parent_id"],),
+                trust=0.88,
+                actionable=False,
+                claimed_source=fact["source_type"],
+                fact_key=fact["fact_type"],
+                fact_value=fact["value"],
+            )
+            protected_ids.append(fact_id)
+        # ─────────────────────────────────────────────────────────────────────
+
         text = self._summarize_text(buf_items)
         self.write(
             text=text,
@@ -577,10 +759,12 @@ class RecursiveSummarizationMemory(BaseMemory):
             trust=0.80,
             actionable=True,
         )
-        raw = [it for it in self.items if it.source_type != "self_summary"]
+        raw = [it for it in self.items if it.source_type not in ("self_summary", "protected_fact")]
         keep_raw = raw[-self.keep_M :] if self.keep_M > 0 else []
         summaries = [it for it in self.items if it.source_type == "self_summary"]
-        self.items = keep_raw + summaries[-1:]
+        # Keep all protected facts permanently — never discard them
+        protected = [it for it in self.items if it.source_type == "protected_fact"]
+        self.items = keep_raw + summaries[-1:] + protected
         self._buffer = [it.item_id for it in keep_raw]
 
 class NaiveProvenanceLabelTrustMemory(RecursiveSummarizationMemory):
@@ -653,6 +837,9 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         self._cfg = cfg
         self._bayes_trust = bayes_trust
         self._anomaly_detector = anomaly_detector
+        # Channel Reputation Tracking: maps channel_id → reputation score (0.0–1.0)
+        # All channels start at 1.0 (clean record). Decays when caught, recovers slowly.
+        self._channel_rep: Dict[str, float] = {}
         # Threshold resolution order: explicit arg > cfg > class default
         if write_trust_threshold is not None:
             self.WRITE_TRUST_THRESHOLD = float(write_trust_threshold)
@@ -667,6 +854,50 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         self.write_quarantine_count += 1
         key = str(channel_id or source_type or "_unknown")
         self._write_quarantine_by_channel[key] += 1
+
+    def resolve_conflict(
+        self,
+        *,
+        conflicting: "MemoryItem",
+        source_type: str,
+        channel_id: str,
+        computed_trust: float,
+        fact_key: Optional[str],
+        fact_value: Optional[str],
+        session_idx: Optional[int],
+        observation_group: Optional[str],
+        text: str,
+    ) -> Optional[dict]:
+        return None
+
+    def _get_channel_rep(self, channel_id: str) -> float:
+        """Return current reputation for a channel (default 1.0 if unseen)."""
+        return self._channel_rep.get(channel_id, 1.0)
+
+    def _penalize_channel(self, channel_id: str) -> None:
+        """Decay channel reputation after a quarantine event."""
+        current = self._get_channel_rep(channel_id)
+        decay = (
+            float(self._cfg.thresholds.channel_reputation_decay)
+            if self._cfg is not None
+            else 0.70
+        )
+        floor = (
+            float(self._cfg.thresholds.channel_reputation_min)
+            if self._cfg is not None
+            else 0.10
+        )
+        self._channel_rep[channel_id] = max(floor, current * decay)
+
+    def _reward_channel(self, channel_id: str) -> None:
+        """Slowly recover channel reputation after a clean write."""
+        current = self._get_channel_rep(channel_id)
+        recovery = (
+            float(self._cfg.thresholds.channel_reputation_recovery)
+            if self._cfg is not None
+            else 1.05
+        )
+        self._channel_rep[channel_id] = min(1.0, current * recovery)
 
     def write(
         self,
@@ -710,6 +941,16 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         else:
             write_threshold = self.WRITE_TRUST_THRESHOLD
 
+        # ── Channel Reputation Tracking (CRT) ────────────────────────────────
+        # Apply per-channel reputation multiplier to trust score.
+        # Channels that have previously injected attacks receive a persistent
+        # trust penalty on all future writes, even if the new content looks clean.
+        # User channel is exempt — we always trust the user fully.
+        if source_type != "user":
+            rep = self._get_channel_rep(channel_id)
+            computed_trust = _clip01(computed_trust * rep)
+        # ─────────────────────────────────────────────────────────────────────
+
         if partition == "planning" and source_type != "user":
             conflicting = find_conflicting_fact(
                 self.items,
@@ -718,53 +959,70 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 session_idx=session_idx,
             )
             if conflicting is not None and computed_trust <= float(getattr(conflicting, "trust", 0.0)):
-                self.conflict_quarantine_count += 1
-                audit_id = super().write(
-                    text=text,
+                resolution = self.resolve_conflict(
+                    conflicting=conflicting,
                     source_type=source_type,
                     channel_id=channel_id,
-                    step=step,
-                    parent_ids=parent_ids,
-                    partition="audit",
-                    trust=computed_trust,
-                    actionable=False,
-                    claimed_source=claimed_source,
-                    session_idx=session_idx,
-                    observation_group=observation_group,
+                    computed_trust=computed_trust,
                     fact_key=fact_key,
                     fact_value=fact_value,
-                    multimodal_relation=multimodal_relation,
-                    attack_family=attack_family,
-                )
-                super().write(
-                    text=build_conflict_evidence_text(
-                        fact_key=fact_key,
-                        trusted_item=conflicting,
-                        incoming_value=fact_value,
-                    ),
-                    source_type="self_summary",
-                    channel_id=f"{channel_id}_conflict",
-                    step=step,
-                    parent_ids=(conflicting.item_id, audit_id),
-                    partition="planning",
-                    trust=min(0.35, computed_trust),
-                    actionable=False,
-                    claimed_source=None,
                     session_idx=session_idx,
                     observation_group=observation_group,
-                    fact_key=fact_key,
-                    fact_value="conflict",
-                    multimodal_relation="conflict",
-                    attack_family="conflict_evidence",
+                    text=text,
                 )
-                return audit_id
+                if resolution is None:
+                    self.conflict_quarantine_count += 1
+                    audit_id = super().write(
+                        text=text,
+                        source_type=source_type,
+                        channel_id=channel_id,
+                        step=step,
+                        parent_ids=parent_ids,
+                        partition="audit",
+                        trust=computed_trust,
+                        actionable=False,
+                        claimed_source=claimed_source,
+                        session_idx=session_idx,
+                        observation_group=observation_group,
+                        fact_key=fact_key,
+                        fact_value=fact_value,
+                        multimodal_relation=multimodal_relation,
+                        attack_family=attack_family,
+                    )
+                    super().write(
+                        text=build_conflict_evidence_text(
+                            fact_key=fact_key,
+                            trusted_item=conflicting,
+                            incoming_value=fact_value,
+                        ),
+                        source_type="self_summary",
+                        channel_id=f"{channel_id}_conflict",
+                        step=step,
+                        parent_ids=(conflicting.item_id, audit_id),
+                        partition="planning",
+                        trust=min(0.35, computed_trust),
+                        actionable=False,
+                        claimed_source=None,
+                        session_idx=session_idx,
+                        observation_group=observation_group,
+                        fact_key=fact_key,
+                        fact_value="conflict",
+                        multimodal_relation="conflict",
+                        attack_family="conflict_evidence",
+                    )
+                    return audit_id
+                computed_trust = _clip01(float(resolution.get("computed_trust", computed_trust)))
+                multimodal_relation = resolution.get("multimodal_relation", multimodal_relation)
+                attack_family = resolution.get("attack_family", attack_family)
 
         # ── LLM-based semantic guard (primary, when enabled) ──────────────────
-        # The WriteTimeGuard is a stateless "Shadow Classifier" running in a
-        # sandbox — its prompt is strictly "classify this segment", never "execute".
-        # It catches adversarial directives that evade regex (e.g. natural-language
-        # instructions, obfuscated commands, buried payloads in legitimate prose).
+        # The MultiAgentGuard (Skeptic + Advocate) runs a minimax verification:
+        # Skeptic assumes adversarial, Advocate assumes benign.
+        # When the Advocate clears content as DATA it simultaneously extracts
+        # structured atomic facts (Option B: dual-output attestation).
+        # Facts are stored inline at write time — no separate consolidation pass.
         write_text = text  # may be replaced by sanitized version
+        _guard_inline_facts: list = []  # populated when guard attests DATA
         if self.guard is not None and source_type != "user" and partition == "planning":
             guard_result = self.guard.classify(text, source_type)
             if guard_result.classification == "METADATA":
@@ -773,6 +1031,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             if guard_result.quarantine:
                 # DIRECTIVE or high-risk: route to audit with sanitized text
                 self._record_write_quarantine(channel_id, source_type)
+                self._penalize_channel(channel_id)  # CRT: this channel got caught
                 audit_text = guard_result.sanitized_text or (
                     f"EVIDENCE_ONLY: (quarantined by LLM guard — "
                     f"risk={guard_result.risk_score:.2f}, "
@@ -787,8 +1046,9 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                     fact_value=fact_value, multimodal_relation=multimodal_relation,
                     attack_family=attack_family,
                 )
-            # DATA: use original text (guard's extract available but raw is richer)
+            # DATA: advocate has attested the content; carry its extracted facts
             write_text = text
+            _guard_inline_facts = getattr(guard_result, "facts", [])
 
         # ── Anomaly detection gate (signature-free, session-level) ────────────
         anomaly_flag = False
@@ -841,6 +1101,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         )
         if quarantine:
             self._record_write_quarantine(channel_id, source_type)
+            self._penalize_channel(channel_id)  # CRT: this channel got caught
             return super().write(
                 text=write_text, source_type=source_type, channel_id=channel_id,
                 step=step, parent_ids=parent_ids, partition="audit",
@@ -850,7 +1111,10 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 fact_value=fact_value, multimodal_relation=multimodal_relation,
                 attack_family=attack_family,
             )
-        return super().write(
+        # CRT: clean write — channel slowly recovers reputation
+        if source_type != "user":
+            self._reward_channel(channel_id)
+        item_id = super().write(
             text=write_text, source_type=source_type, channel_id=channel_id,
             step=step, parent_ids=parent_ids, partition=partition,
             trust=computed_trust, actionable=actionable, claimed_source=claimed_source,
@@ -859,6 +1123,61 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             fact_value=fact_value, multimodal_relation=multimodal_relation,
             attack_family=attack_family,
         )
+        # Option B: advocate-attested facts stored inline at write time.
+        # These bypass the _buffer (BaseMemory.write) so they are never consolidated
+        # away, and provenance traces back to the parent item via parent_ids.
+        if item_id > 0 and _guard_inline_facts and source_type in _TRUSTED_SOURCES:
+            self._write_inline_facts(
+                facts=_guard_inline_facts,
+                parent_id=item_id,
+                step=step,
+                source_type=source_type,
+            )
+        return item_id
+
+    def _write_inline_facts(
+        self,
+        facts: list,
+        parent_id: int,
+        step: int,
+        source_type: str,
+    ) -> None:
+        """
+        Persist advocate-attested facts as durable protected_fact items.
+
+        Called immediately after a successful write when the MultiAgentGuard's
+        advocate agent has extracted structured facts (Option B dual-output).
+        Facts bypass the consolidation buffer (written via BaseMemory.write)
+        so they are never summarised away, and their provenance traces back to
+        the parent item that the advocate cleared as DATA.
+
+        De-duplicates against existing protected_fact values to avoid bloat.
+        """
+        seen = {
+            it.fact_value
+            for it in self.items
+            if it.source_type == "protected_fact" and it.fact_value
+        }
+        for fact in facts:
+            val = str(fact.get("value", "")).strip()
+            ftype = str(fact.get("type", "fact")).strip()
+            if not val or val in seen:
+                continue
+            seen.add(val)
+            fact_text = f"PROTECTED_FACT[{ftype}]: {val}"
+            # Write directly to BaseMemory (skips RecursiveSummarizationMemory._buffer)
+            super(RecursiveSummarizationMemory, self).write(
+                text=fact_text,
+                source_type="protected_fact",
+                channel_id=f"fact_{ftype}",
+                step=step,
+                parent_ids=(parent_id,),
+                trust=0.88,
+                actionable=False,
+                claimed_source=source_type,
+                fact_key=ftype,
+                fact_value=val,
+            )
 
     def constructor_guard(self, candidate: str, lineage: List[MemoryItem]) -> bool:
         # Read integrity threshold from config; fall back to 0.65
@@ -935,6 +1254,45 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             if self._cfg is not None
             else 0.70
         )
+        # ── Fact extraction at consolidation time ────────────────────────────────
+        # Always extract key facts from the buffer items being consolidated.
+        # User messages (source_type="user") bypass the write-time guard path, so
+        # consolidation is the only opportunity to capture their facts as durable
+        # protected_fact items that survive future consolidations.
+        #
+        # When a guard with extract_facts() is available, use LLM-backed extraction
+        # (robust to varied date/name formats). When guard is None, fall back to
+        # regex. seen_fact_values deduplication avoids re-storing facts that Option B
+        # already persisted inline at write time (for non-user planning items).
+        _guard_for_facts = self.guard if (
+            self.guard is not None and hasattr(self.guard, "extract_facts")
+        ) else None
+        facts = extract_key_facts(buf_items, guard=_guard_for_facts)
+        seen_fact_values = {
+            it.fact_value
+            for it in self.items
+            if it.source_type == "protected_fact" and it.fact_value
+        }
+        for fact in facts:
+            if fact["value"] in seen_fact_values:
+                continue
+            seen_fact_values.add(fact["value"])
+            fact_text = (
+                f"PROTECTED_FACT[{fact['fact_type']}]: {fact['value']} "
+                f"— from: {fact['source_text'][:80]}"
+            )
+            super(RecursiveSummarizationMemory, self).write(
+                text=fact_text,
+                source_type="protected_fact",
+                channel_id=f"fact_{fact['fact_type']}",
+                step=step,
+                parent_ids=(fact["parent_id"],),
+                trust=0.88,
+                actionable=False,
+                claimed_source=fact["source_type"],
+                fact_key=fact["fact_type"],
+                fact_value=fact["value"],
+            )
         self.write(
             text=candidate,
             source_type="self_summary",
@@ -944,10 +1302,11 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             trust=summary_trust,
             actionable=False,
         )
-        raw = [it for it in self.items if it.source_type != "self_summary"]
+        raw = [it for it in self.items if it.source_type not in ("self_summary", "protected_fact")]
         keep_raw = raw[-self.keep_M :] if self.keep_M > 0 else []
         summaries = [it for it in self.items if it.source_type == "self_summary"]
-        self.items = keep_raw + summaries[-1:]
+        protected = [it for it in self.items if it.source_type == "protected_fact"]
+        self.items = keep_raw + summaries[-1:] + protected
         self._buffer = [it.item_id for it in keep_raw]
 
 class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
@@ -1164,6 +1523,270 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         self._consistency_graph = consistency_graph
         self._correction_scorer = correction_scorer
 
+    def _all_items_by_id(self) -> Dict[int, MemoryItem]:
+        return {
+            int(it.item_id): it
+            for it in list(getattr(self, "items", [])) + list(getattr(self, "audit_items", []))
+        }
+
+    def _support_identity(self, it: MemoryItem) -> str:
+        if getattr(it, "source_type", "") in {"ocr_text", "vision_caption"}:
+            og = getattr(it, "observation_group", None)
+            if og:
+                return f"obs:{og}"
+        return f"ch:{getattr(it, 'channel_id', '')}"
+
+    def _belief_support_profile(self, parent_ids: Sequence[int]) -> dict:
+        id_to = self._all_items_by_id()
+        parents = [id_to[int(pid)] for pid in parent_ids if int(pid) in id_to]
+        planning_parents = [p for p in parents if getattr(p, "partition", "planning") != "audit"]
+        trusted_floor = (
+            float(self._cfg.thresholds.belief_promotion_min_parent_trust)
+            if self._cfg is not None
+            else 0.60
+        )
+        trusted_support = [p for p in planning_parents if float(getattr(p, "trust", 0.0)) >= trusted_floor]
+        identities = {self._support_identity(p) for p in trusted_support}
+        has_visual = any(getattr(p, "source_type", "") in {"ocr_text", "vision_caption"} for p in trusted_support)
+        has_nonvisual = any(getattr(p, "source_type", "") not in {"ocr_text", "vision_caption"} for p in trusted_support)
+        has_conflict = any(
+            getattr(p, "multimodal_relation", None) in {"conflict", "conflict_candidate", "noisy_benign"}
+            or getattr(p, "attack_family", None) in {"soft_conflict_candidate", "conflict_evidence"}
+            for p in planning_parents
+        )
+        fact_pairs = {
+            (getattr(p, "fact_key", None), _norm_fact_token(getattr(p, "fact_value", None)))
+            for p in trusted_support
+            if getattr(p, "fact_key", None) and _norm_fact_token(getattr(p, "fact_value", None))
+        }
+        return {
+            "parents": parents,
+            "planning_parents": planning_parents,
+            "trusted_support": trusted_support,
+            "independent_support": len(identities),
+            "has_visual": has_visual,
+            "has_nonvisual": has_nonvisual,
+            "has_conflict": has_conflict,
+            "fact_pairs": fact_pairs,
+        }
+
+    def _belief_promotion_sufficient(
+        self,
+        *,
+        source_type: str,
+        parent_ids: Sequence[int],
+    ) -> bool:
+        if source_type not in {"self_summary", "protected_fact"}:
+            return True
+        profile = self._belief_support_profile(parent_ids)
+        trusted_support = profile["trusted_support"]
+        if not trusted_support:
+            return False
+        min_support = (
+            int(self._cfg.thresholds.belief_promotion_min_support)
+            if self._cfg is not None
+            else 2
+        )
+        min_independent = (
+            int(self._cfg.thresholds.belief_promotion_min_independent_support)
+            if self._cfg is not None
+            else 2
+        )
+        visual_requires_nonvisual = (
+            bool(self._cfg.thresholds.belief_promotion_visual_requires_nonvisual_support)
+            if self._cfg is not None
+            else True
+        )
+        if profile["has_conflict"]:
+            return False
+        if source_type == "protected_fact":
+            return profile["has_nonvisual"]
+        if len(trusted_support) < min_support:
+            return False
+        if profile["independent_support"] < min_independent:
+            return False
+        if profile["has_visual"] and visual_requires_nonvisual and not profile["has_nonvisual"]:
+            return False
+        return True
+
+    def _evidence_sufficient_for_planning(self, it: MemoryItem) -> bool:
+        if getattr(it, "source_type", "") not in {"ocr_text", "vision_caption"}:
+            return True
+        if float(getattr(it, "trust", 0.0)) >= 0.75 and getattr(it, "multimodal_relation", "") == "aligned_benign":
+            return True
+        if getattr(it, "multimodal_relation", None) in {"conflict", "conflict_candidate", "noisy_benign"}:
+            return False
+        if float(getattr(it, "quality_score", 1.0)) < (
+            float(self._cfg.thresholds.planning_evidence_quality_floor)
+            if self._cfg is not None
+            else 0.35
+        ):
+            return False
+        fact_key = getattr(it, "fact_key", None)
+        fact_value = _norm_fact_token(getattr(it, "fact_value", None))
+        if not fact_key or not fact_value:
+            return False
+        support_identities = set()
+        for other in self.items:
+            if other.item_id == it.item_id or getattr(other, "partition", "planning") == "audit":
+                continue
+            if getattr(other, "fact_key", None) != fact_key:
+                continue
+            if _norm_fact_token(getattr(other, "fact_value", None)) != fact_value:
+                continue
+            if float(getattr(other, "trust", 0.0)) < 0.60:
+                continue
+            support_identities.add(self._support_identity(other))
+            if getattr(other, "source_type", "") not in {"ocr_text", "vision_caption"}:
+                return True
+        return len(support_identities) >= 2
+
+    def _belief_traceable_for_planning(self, it: MemoryItem) -> bool:
+        return self._belief_promotion_sufficient(
+            source_type=str(getattr(it, "source_type", "")),
+            parent_ids=getattr(it, "parent_ids", ()),
+        )
+
+    def _support_evidence_for_belief(self, it: MemoryItem) -> List[MemoryItem]:
+        if not getattr(it, "parent_ids", ()):
+            return []
+        id_to = self._all_items_by_id()
+        parents = [id_to[int(pid)] for pid in getattr(it, "parent_ids", ()) if int(pid) in id_to]
+        parents = [
+            p for p in parents
+            if getattr(p, "partition", "planning") != "audit"
+            and getattr(p, "source_type", "") != "protected_fact"
+            and float(getattr(p, "trust", 0.0)) >= 0.60
+        ]
+        parents.sort(key=lambda p: float(getattr(p, "trust", 0.0)), reverse=True)
+        return parents[:1]
+
+    def _typed_partition_for_item(
+        self,
+        *,
+        source_type: str,
+        text: str,
+        partition: str,
+        trust: float,
+    ) -> str:
+        if partition != "planning":
+            return partition
+        if source_type in {"self_summary", "protected_fact"}:
+            return "belief"
+        if extract_directive(text) is not None and trust >= 0.70:
+            return "control"
+        return "evidence"
+
+    def _partition_multiplier(self, partition: str) -> float:
+        if partition == "belief":
+            return 1.10
+        if partition == "evidence":
+            return 0.90
+        if partition == "control":
+            return 0.25
+        return 1.0
+
+    def _quality_from_context(
+        self,
+        *,
+        source_type: str,
+        trust: float,
+        multimodal_relation: Optional[str],
+        parent_ids: Sequence[int],
+        fact_key: Optional[str],
+        fact_value: Optional[str],
+    ) -> float:
+        quality = 1.0
+        if source_type in {"ocr_text", "vision_caption"}:
+            quality *= (
+                float(self._cfg.thresholds.visual_evidence_base_quality)
+                if self._cfg is not None
+                else 0.90
+            )
+        relation = str(multimodal_relation or "")
+        if relation in {"conflict", "conflict_candidate"}:
+            quality *= max(
+                0.05,
+                1.0 - (
+                    float(self._cfg.thresholds.conflict_discount_strength)
+                    if self._cfg is not None
+                    else 0.45
+                ),
+            )
+        if relation == "noisy_benign":
+            quality *= (
+                float(self._cfg.thresholds.noisy_evidence_penalty)
+                if self._cfg is not None
+                else 0.65
+            )
+        if source_type in {"ocr_text", "vision_caption"}:
+            support_identities = set()
+            has_nonvisual = False
+            target_value = _norm_fact_token(fact_value)
+            for other in self.items:
+                if getattr(other, "partition", "planning") == "audit":
+                    continue
+                if fact_key and getattr(other, "fact_key", None) != fact_key:
+                    continue
+                if fact_key and target_value and _norm_fact_token(getattr(other, "fact_value", None)) != target_value:
+                    continue
+                if float(getattr(other, "trust", 0.0)) < 0.60:
+                    continue
+                support_identities.add(self._support_identity(other))
+                if getattr(other, "source_type", "") not in {"ocr_text", "vision_caption"}:
+                    has_nonvisual = True
+            if not has_nonvisual and len(support_identities) < 2:
+                quality *= (
+                    float(self._cfg.thresholds.unsupported_visual_penalty)
+                    if self._cfg is not None
+                    else 0.70
+                )
+        if parent_ids and source_type in {"self_summary", "protected_fact"}:
+            profile = self._belief_support_profile(parent_ids)
+            support_count = len(profile["trusted_support"])
+            min_support = (
+                int(self._cfg.thresholds.belief_promotion_min_support)
+                if self._cfg is not None
+                else 2
+            )
+            quality *= min(1.0, support_count / max(1, min_support))
+            if profile["has_conflict"]:
+                quality *= 0.5
+        quality *= max(0.25, float(trust))
+        return _clip01(quality)
+
+    def resolve_conflict(
+        self,
+        *,
+        conflicting: "MemoryItem",
+        source_type: str,
+        channel_id: str,
+        computed_trust: float,
+        fact_key: Optional[str],
+        fact_value: Optional[str],
+        session_idx: Optional[int],
+        observation_group: Optional[str],
+        text: str,
+    ) -> Optional[dict]:
+        if source_type == "user":
+            return None
+        prior_trust = float(getattr(conflicting, "trust", 0.0))
+        trust_gap = max(0.0, prior_trust - computed_trust)
+        discount_strength = (
+            float(self._cfg.thresholds.conflict_discount_strength)
+            if self._cfg is not None
+            else 0.45
+        )
+        if source_type in {"ocr_text", "vision_caption"} and getattr(conflicting, "source_type", "") in {"ocr_text", "vision_caption"}:
+            discount_strength = min(0.80, discount_strength + 0.15)
+        softened = computed_trust * (1.0 - discount_strength * min(1.0, trust_gap + 0.25))
+        softened = min(softened, max(0.15, prior_trust * 0.80))
+        return {
+            "computed_trust": max(0.05, softened),
+            "multimodal_relation": "conflict_candidate",
+            "attack_family": "soft_conflict_candidate",
+        }
+
     def _derived_trust_cap(
         self,
         *,
@@ -1197,37 +1820,51 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         channel_id = str(kwargs.get("channel_id", ""))
 
         # ── User correction path ─────────────────────────────────────────────
-        # Legitimate user corrections are authenticated via CorrectionPlausibilityScorer
-        # rather than unconditionally trusted. This prevents adversaries from
-        # injecting overrides by spoofing source_type="user".
+        # CorrectionPlausibilityScorer evaluates P(legit | correction context).
+        # The formula (grounding × W_G + specificity × W_S − freq_penalty × W_F)
+        # is only well-posed when the message IS a correction attempt.  Applying it
+        # to routine user turns (narrative facts, task instructions) produces
+        # spurious SUSPICIOUS tiers because grounding_score=0 (no prior context)
+        # and the default specificity is low → plausibility < correction_plausibility_low
+        # → suggested_trust=0.20 → quarantine.
+        #
+        # Gate: only invoke the scorer when the message contains correction or
+        # retraction signals.  Otherwise grant full user trust — the scorer's prior
+        # does not apply outside a correction context.
         if source_type == "user" and self._correction_scorer is not None:
             try:
-                planning_nodes = list(self._consistency_graph._nodes.values()) if self._consistency_graph else []
-                user_correction_count = sum(
-                    1 for it in self.items if it.source_type == "user"
-                )
-                # Build a ConsistencyNode for the scorer
-                from consistency_graph import ConsistencyNode
-                candidate_node = ConsistencyNode(
-                    node_id=self._next_id,
-                    text=text,
-                    source_type=source_type,
-                    channel_id=channel_id,
-                    step=int(kwargs.get("step", 0)),
-                    session_idx=kwargs.get("session_idx"),
-                    embedding=self.embedder.embed(text),
-                    fact_key=kwargs.get("fact_key"),
-                    fact_value=kwargs.get("fact_value"),
-                    is_user_turn=True,
-                )
-                score = self._correction_scorer.score(
-                    node=candidate_node,
-                    planning_nodes=planning_nodes,
-                    user_correction_count=user_correction_count,
-                )
-                kwargs["trust"] = float(score.suggested_trust)
-            except Exception:
-                pass  # scorer unavailable; fall through to default user trust
+                from consistency_graph import _has_generic_retraction, _has_specific_correction
+                _is_correction_ctx = _has_generic_retraction(text) or _has_specific_correction(text)
+            except ImportError:
+                _is_correction_ctx = True  # conservative: apply scorer if can't check
+            if _is_correction_ctx:
+                try:
+                    planning_nodes = list(self._consistency_graph._nodes.values()) if self._consistency_graph else []
+                    user_correction_count = sum(
+                        1 for it in self.items if it.source_type == "user"
+                    )
+                    # Build a ConsistencyNode for the scorer
+                    from consistency_graph import ConsistencyNode
+                    candidate_node = ConsistencyNode(
+                        node_id=self._next_id,
+                        text=text,
+                        source_type=source_type,
+                        channel_id=channel_id,
+                        step=int(kwargs.get("step", 0)),
+                        session_idx=kwargs.get("session_idx"),
+                        embedding=self.embedder.embed(text),
+                        fact_key=kwargs.get("fact_key"),
+                        fact_value=kwargs.get("fact_value"),
+                        is_user_turn=True,
+                    )
+                    score = self._correction_scorer.score(
+                        node=candidate_node,
+                        planning_nodes=planning_nodes,
+                        user_correction_count=user_correction_count,
+                    )
+                    kwargs["trust"] = float(score.suggested_trust)
+                except Exception:
+                    pass  # scorer unavailable; fall through to default user trust
 
         base_trust = float(kwargs.get("trust", default_source_cred(source_type, self._cfg)))
         parent_ids = list(kwargs.get("parent_ids", ()))
@@ -1237,7 +1874,41 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             parent_ids=parent_ids,
         )
         kwargs["actionable"] = False
+        target_partition = self._typed_partition_for_item(
+            source_type=source_type,
+            text=text,
+            partition=str(kwargs.get("partition", "planning")),
+            trust=float(kwargs["trust"]),
+        )
         item_id = super().write(**kwargs)
+
+        if item_id > 0:
+            for it in self.items:
+                if it.item_id == item_id:
+                    if target_partition == "belief":
+                        # Evaluate promotion now, while parent items are still in memory.
+                        # Cache the verdict so retrieval does not re-run this check
+                        # against stale memory state (parents may be discarded by
+                        # consolidation cleanup before the next retrieve() call).
+                        promotion_ok = self._belief_promotion_sufficient(
+                            source_type=source_type,
+                            parent_ids=parent_ids,
+                        )
+                        if not promotion_ok:
+                            target_partition = "evidence"
+                            it.trust = min(float(it.trust), 0.55)
+                            it.multimodal_relation = it.multimodal_relation or "insufficient_support"
+                        it.belief_traceable = promotion_ok
+                    it.partition = target_partition
+                    it.quality_score = self._quality_from_context(
+                        source_type=source_type,
+                        trust=float(it.trust),
+                        multimodal_relation=getattr(it, "multimodal_relation", None),
+                        parent_ids=parent_ids,
+                        fact_key=kwargs.get("fact_key"),
+                        fact_value=kwargs.get("fact_value"),
+                    )
+                    break
 
         # ── Consistency graph update ─────────────────────────────────────────
         # Track CONFIRMS/CONTRADICTS/UPDATES edges for multi-turn coherence.
@@ -1265,6 +1936,91 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
                 pass  # consistency graph not available
 
         return item_id
+
+    def retrieve(
+        self,
+        *,
+        query: str,
+        step: int,
+        for_planning: bool = True,
+        log_retrieved_source_types: bool = False,
+        gold_answer: Optional[str] = None,
+    ) -> List[MemoryItem]:
+        q = self.embedder.embed(query)
+        scored: List[Tuple[float, MemoryItem]] = []
+        for it in self._iter_for_retrieval(for_planning=for_planning):
+            if for_planning and getattr(it, "partition", "evidence") == "control":
+                continue
+            sim = safe_cosine_sim(q, it.embedding)
+            score = (
+                float(sim)
+                * _clip01(it.trust)
+                * self._partition_multiplier(getattr(it, "partition", "evidence"))
+                * _clip01(float(getattr(it, "quality_score", 1.0)))
+            )
+            if not math.isfinite(score):
+                continue
+            scored.append((score, it))
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        selected: List[MemoryItem] = []
+        seen_fact_conflicts: Dict[str, str] = {}
+        conflicting_fact_keys: set = set()
+        belief_support = set()
+        for _, it in scored[: max(self.top_k * 3, self.top_k)]:
+            fact_key = getattr(it, "fact_key", None)
+            fact_value = _norm_fact_token(getattr(it, "fact_value", None))
+            partition = getattr(it, "partition", "evidence")
+            if fact_key and fact_value:
+                prev = seen_fact_conflicts.get(fact_key)
+                if prev is None:
+                    seen_fact_conflicts[fact_key] = fact_value
+                elif prev != fact_value:
+                    conflicting_fact_keys.add(fact_key)
+            if partition == "belief" and fact_key and fact_value:
+                belief_support.add((fact_key, fact_value))
+
+        for _, it in scored:
+            fact_key = getattr(it, "fact_key", None)
+            fact_value = _norm_fact_token(getattr(it, "fact_value", None))
+            partition = getattr(it, "partition", "evidence")
+            # Use the cached write-time verdict: avoids re-running the check against
+            # stale memory state after consolidation has discarded parent items.
+            if for_planning and partition == "belief" and not getattr(it, "belief_traceable", True):
+                continue
+            if (
+                for_planning
+                and partition == "evidence"
+                and fact_key in conflicting_fact_keys
+                and (fact_key, fact_value) not in belief_support
+            ):
+                continue
+            if for_planning and partition == "evidence" and not self._evidence_sufficient_for_planning(it):
+                continue
+            if partition == "evidence" and float(getattr(it, "trust", 0.0)) < 0.20:
+                continue
+            if any(existing.item_id == it.item_id for existing in selected):
+                continue
+            selected.append(it)
+            if for_planning and partition == "belief":
+                for support in self._support_evidence_for_belief(it):
+                    if any(existing.item_id == support.item_id for existing in selected):
+                        continue
+                    selected.append(support)
+                    if len(selected) >= self.top_k:
+                        break
+            if len(selected) >= self.top_k:
+                break
+
+        trusted = [it for it in selected if it.trust >= 0.7]
+        self.retrieval_trusted_n += len(trusted)
+        self.retrieval_trusted_capture_n += sum(1 for it in trusted if it.source_type == "attacker")
+        self._maybe_log_retrieved_source_types(
+            selected,
+            log_retrieved_source_types=log_retrieved_source_types,
+            gold_answer=gold_answer,
+        )
+        return selected
 
 
 class ActionFirewallMemory(RecursiveSummarizationMemory):

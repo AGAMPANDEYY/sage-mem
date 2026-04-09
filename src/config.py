@@ -116,6 +116,22 @@ class ThresholdConfig:
     reactive_tightening_lambda: float   # θ_t = θ_0 * exp(-λ * quarantine_count)
     reactive_tightening_cap: float      # max threshold under reactive tightening
 
+    # Channel reputation tracking
+    channel_reputation_decay: float
+    channel_reputation_recovery: float
+    channel_reputation_min: float
+
+    # Evidence → belief promotion / planning access
+    belief_promotion_min_parent_trust: float
+    belief_promotion_min_support: int
+    belief_promotion_min_independent_support: int
+    belief_promotion_visual_requires_nonvisual_support: bool
+    conflict_discount_strength: float
+    noisy_evidence_penalty: float
+    visual_evidence_base_quality: float
+    unsupported_visual_penalty: float
+    planning_evidence_quality_floor: float
+
     def __post_init__(self):
         _assert_unit("write_trust_threshold", self.write_trust_threshold)
         _assert_unit("risk_quarantine_threshold", self.risk_quarantine_threshold)
@@ -127,6 +143,20 @@ class ThresholdConfig:
         _assert_unit("avg_trust_high_integrity", self.avg_trust_high_integrity)
         _assert_unit("consolidation_summary_trust", self.consolidation_summary_trust)
         _assert_unit("reactive_tightening_cap", self.reactive_tightening_cap)
+        _assert_unit("channel_reputation_decay", self.channel_reputation_decay)
+        _assert_unit("channel_reputation_min", self.channel_reputation_min)
+        _assert_unit("belief_promotion_min_parent_trust", self.belief_promotion_min_parent_trust)
+        _assert_unit("conflict_discount_strength", self.conflict_discount_strength)
+        _assert_unit("noisy_evidence_penalty", self.noisy_evidence_penalty)
+        _assert_unit("visual_evidence_base_quality", self.visual_evidence_base_quality)
+        _assert_unit("unsupported_visual_penalty", self.unsupported_visual_penalty)
+        _assert_unit("planning_evidence_quality_floor", self.planning_evidence_quality_floor)
+        if not math.isfinite(self.channel_reputation_recovery) or self.channel_reputation_recovery < 1.0:
+            raise ValueError("channel_reputation_recovery must be a finite float >= 1.0")
+        if self.belief_promotion_min_support < 1:
+            raise ValueError("belief_promotion_min_support must be >= 1")
+        if self.belief_promotion_min_independent_support < 1:
+            raise ValueError("belief_promotion_min_independent_support must be >= 1")
         if self.correction_plausibility_low >= self.correction_plausibility_high:
             raise ValueError("correction_plausibility_low must be < high")
 
@@ -268,6 +298,20 @@ class SAGEMemConfig:
             avg_trust_high_integrity=float(t["avg_trust_high_integrity"]),
             reactive_tightening_lambda=float(t["reactive_tightening_lambda"]),
             reactive_tightening_cap=float(t.get("reactive_tightening_cap", 0.45)),
+            channel_reputation_decay=float(t.get("channel_reputation_decay", 0.70)),
+            channel_reputation_recovery=float(t.get("channel_reputation_recovery", 1.05)),
+            channel_reputation_min=float(t.get("channel_reputation_min", 0.10)),
+            belief_promotion_min_parent_trust=float(t.get("belief_promotion_min_parent_trust", 0.60)),
+            belief_promotion_min_support=int(t.get("belief_promotion_min_support", 2)),
+            belief_promotion_min_independent_support=int(t.get("belief_promotion_min_independent_support", 2)),
+            belief_promotion_visual_requires_nonvisual_support=bool(
+                t.get("belief_promotion_visual_requires_nonvisual_support", True)
+            ),
+            conflict_discount_strength=float(t.get("conflict_discount_strength", 0.45)),
+            noisy_evidence_penalty=float(t.get("noisy_evidence_penalty", 0.65)),
+            visual_evidence_base_quality=float(t.get("visual_evidence_base_quality", 0.90)),
+            unsupported_visual_penalty=float(t.get("unsupported_visual_penalty", 0.70)),
+            planning_evidence_quality_floor=float(t.get("planning_evidence_quality_floor", 0.35)),
             consolidation_summary_trust=float(t.get("consolidation_summary_trust", 0.70)),
         )
 
@@ -328,6 +372,20 @@ class SAGEMemConfig:
                 "alpha_fpr": self.thresholds.alpha_fpr,
                 "conformal_coverage": self.thresholds.conformal_coverage,
                 "anomaly_quarantine_percentile": self.thresholds.anomaly_quarantine_percentile,
+                "reactive_tightening_lambda": self.thresholds.reactive_tightening_lambda,
+                "reactive_tightening_cap": self.thresholds.reactive_tightening_cap,
+                "channel_reputation_decay": self.thresholds.channel_reputation_decay,
+                "channel_reputation_recovery": self.thresholds.channel_reputation_recovery,
+                "channel_reputation_min": self.thresholds.channel_reputation_min,
+                "belief_promotion_min_parent_trust": self.thresholds.belief_promotion_min_parent_trust,
+                "belief_promotion_min_support": self.thresholds.belief_promotion_min_support,
+                "belief_promotion_min_independent_support": self.thresholds.belief_promotion_min_independent_support,
+                "belief_promotion_visual_requires_nonvisual_support": self.thresholds.belief_promotion_visual_requires_nonvisual_support,
+                "conflict_discount_strength": self.thresholds.conflict_discount_strength,
+                "noisy_evidence_penalty": self.thresholds.noisy_evidence_penalty,
+                "visual_evidence_base_quality": self.thresholds.visual_evidence_base_quality,
+                "unsupported_visual_penalty": self.thresholds.unsupported_visual_penalty,
+                "planning_evidence_quality_floor": self.thresholds.planning_evidence_quality_floor,
             },
             "calibrated": self.calibrated,
             "calibration_source": self.calibration_source,
