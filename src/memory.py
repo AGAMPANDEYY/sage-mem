@@ -1,6 +1,7 @@
 import math
 import os
 import re
+import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -600,6 +601,30 @@ class BaseMemory:
         # Calibration log: list of {source_type, contributed_to_correct} dicts
         # populated when log_retrieved_source_types=True is passed to retrieve()
         self.retrieved_source_type_log: List[dict] = []
+        # ── Latency tracking ─────────────────────────────────────────────────
+        # Accumulated wall-clock time (seconds) spent inside write() and retrieve().
+        # Use latency_summary() to get per-call averages.
+        self._write_time_total_s: float = 0.0
+        self._write_call_count: int = 0
+        self._retrieve_time_total_s: float = 0.0
+        self._retrieve_call_count: int = 0
+
+    def latency_summary(self) -> dict:
+        """Return average write and retrieve latency in milliseconds."""
+        return {
+            "write_calls": self._write_call_count,
+            "write_avg_ms": round(
+                1000 * self._write_time_total_s / max(1, self._write_call_count), 3
+            ),
+            "write_total_ms": round(1000 * self._write_time_total_s, 3),
+            "retrieve_calls": self._retrieve_call_count,
+            "retrieve_avg_ms": round(
+                1000 * self._retrieve_time_total_s / max(1, self._retrieve_call_count), 3
+            ),
+            "retrieve_total_ms": round(1000 * self._retrieve_time_total_s, 3),
+            "items_in_memory": len(self.items),
+            "items_in_audit": len(self.audit_items),
+        }
 
     def write(
         self,
@@ -621,6 +646,7 @@ class BaseMemory:
         attack_family: Optional[str] = None,
         quality_score: Optional[float] = None,
     ) -> int:
+        _t0 = time.perf_counter()
         emb = self.embedder.embed(text)
         t = _clip01(default_source_cred(source_type) if trust is None else float(trust))
         item = MemoryItem(
@@ -648,6 +674,8 @@ class BaseMemory:
             self.audit_items.append(item)
         else:
             self.items.append(item)
+        self._write_time_total_s += time.perf_counter() - _t0
+        self._write_call_count += 1
         return item.item_id
 
     def consolidate(self, step: int) -> None:
@@ -663,6 +691,7 @@ class BaseMemory:
         log_retrieved_source_types: bool = False,
         gold_answer: Optional[str] = None,
     ) -> List[MemoryItem]:
+        _t0 = time.perf_counter()
         q = self.embedder.embed(query)
         scored: List[Tuple[float, MemoryItem]] = []
         for it in self._iter_for_retrieval(for_planning=for_planning):
@@ -687,6 +716,8 @@ class BaseMemory:
                     "source_type": it.source_type,
                     "contributed_to_correct": contributed,
                 })
+        self._retrieve_time_total_s += time.perf_counter() - _t0
+        self._retrieve_call_count += 1
         return out
 
     def _maybe_log_retrieved_source_types(

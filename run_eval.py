@@ -346,6 +346,27 @@ def print_results_table(summary: dict, *, title: str) -> None:
         print("  ASR (LLM) = Behavioral ASR via OpenAI judge")
     print()
 
+    # ── Latency table ──────────────────────────────────────────────────────
+    lat_header = f"  {'Condition':<26}  {'Write ms':>10}  {'Retr ms':>10}  {'Items':>8}  {'Audit':>8}"
+    has_latency = any(
+        "write_avg_ms" in splits.get("clean", {}) or "write_avg_ms" in splits.get("poisoned", {})
+        for splits in summary.values()
+    )
+    if has_latency:
+        print(lat_header)
+        print("  " + "-" * (len(lat_header) - 2))
+        for cond, splits in summary.items():
+            name = cond_short.get(cond, cond[:26])
+            d = splits.get("poisoned") or splits.get("clean") or {}
+            w = d.get("write_avg_ms", float("nan"))
+            r = d.get("retrieve_avg_ms", float("nan"))
+            items = d.get("items_in_memory_avg", float("nan"))
+            audit = d.get("items_in_audit_avg", float("nan"))
+            print(f"  {name:<26}  {w:>10.3f}  {r:>10.3f}  {items:>8.1f}  {audit:>8.1f}")
+        print("  Write ms = avg ms per write() call | Retr ms = avg ms per retrieve() call")
+        print("  Items = avg planning memory size | Audit = avg quarantine store size")
+        print()
+
 
 def _sample_cases(cases: list[dict], *, fraction: float | None, sample_seed: int) -> list[dict]:
     if fraction is None:
