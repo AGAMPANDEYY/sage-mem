@@ -91,16 +91,16 @@ The paper therefore does not claim that SAGE-Mem dominates retrieval-time filter
 This paper sits at the intersection of four threads of prior work.
 
 **Memory poisoning and agent reliability.**
-Recent work has shown that persistent agent memory is a durable attack surface and that poisoning can be achieved through ordinary interaction rather than direct database access `[CITE: memory poisoning / agent memory attacks]`. Our work agrees with that threat model, but shifts the emphasis from demonstrating feasibility to evaluating **where in the memory lifecycle** defenses should operate.
+Recent work has shown that persistent agent memory is a durable attack surface and that poisoning can be achieved through ordinary interaction rather than direct database access [AgentPoison: Chan et al., 2024, arXiv:2407.12784; MINJA: Dang et al., 2025, arXiv:2503.03704; Zombie Agents: arXiv:2602.15654]. Our work agrees with that threat model, but shifts the emphasis from demonstrating feasibility to evaluating **where in the memory lifecycle** defenses should operate.
 
 **Retrieval-time robustness and corrupted context.**
-A large body of work studies corrupted retrieval, noisy context, and prompt injection at the point of model invocation `[CITE: retrieval corruption / prompt injection / RAG robustness]`. These methods are relevant baselines, and MMA is our concrete retrieval-time reference point. Our claim is not that retrieval-time defense is unimportant, but that it is insufficient once unsupported observations have already been written into durable state.
+A large body of work studies corrupted retrieval, noisy context, and prompt injection at the point of model invocation [PoisonedRAG: Zou et al., 2024, arXiv:2402.07867; GuardAgent: Xiang et al., 2024, arXiv:2406.09187; A-MemGuard: arXiv:2510.02373; ASB: arXiv:2410.02644]. These methods are relevant baselines, and MMA is our concrete retrieval-time reference point. Our claim is not that retrieval-time defense is unimportant, but that it is insufficient once unsupported observations have already been written into durable state.
 
 **Multimodal prompt injection and vision-language reliability.**
-Prior multimodal security work shows that images can manipulate captioners, OCR pipelines, and downstream reasoning `[CITE: multimodal prompt injection / VLM attacks]`. Our contribution is memory-specific: OCR and caption outputs derived from the same image can create **false corroboration** inside the memory store unless dependence is modeled explicitly.
+Prior multimodal security work shows that images can manipulate captioners, OCR pipelines, and downstream reasoning [AegisAgent: arXiv:2512.20986; see also adversarial patch literature]. Our contribution is memory-specific: OCR and caption outputs derived from the same image can create **false corroboration** inside the memory store unless dependence is modeled explicitly.
 
 **Memory-augmented agents and benchmark methodology.**
-Prior work on memory-augmented agents, long-horizon QA, and agent evaluation provides the underlying setting but typically does not separate write admission, belief formation, and retrieval contamination as distinct evaluation stages `[CITE: memory-augmented agents / long-horizon evaluation / benchmark methodology]`. Our lifecycle metrics are intended to make that decomposition explicit.
+Prior work on memory-augmented agents, long-horizon QA, and agent evaluation provides the underlying setting but typically does not separate write admission, belief formation, and retrieval contamination as distinct evaluation stages [MemGPT: Packer et al., 2023, arXiv:2310.08560; Generative Agents: Park et al., 2023, arXiv:2304.03442; AgentBench: arXiv:2308.03688]. Our lifecycle metrics are intended to make that decomposition explicit.
 
 Relative to these literatures, the paper’s novelty is therefore not a claim to have invented memory poisoning, multimodal prompt injection, or memory architectures in isolation. The novelty is the **combination** of write-time governed multimodal memory, dependence-aware multimodal handling, and lifecycle evaluation that separates admission, belief formation, retrieval contamination, and downstream answer quality.
 
@@ -520,6 +520,20 @@ What the results do **not** support:
 - that H5 alone is robust to adaptive adversaries who paraphrase around correction-language vocabulary,
 - that H6/ABR is robust to vocabulary-adaptive paraphrasing — the adaptive attack achieves ASR=1.0 against H6 (identical to H5), confirming that key-level composite scoring is insufficient against paraphrased attacks; sentence-level semantic similarity or LLM-graded verification is the natural next step.
 
+### Pareto Frontier (Security–Utility Tradeoff)
+
+The two primary methods occupy distinct points on the security–utility Pareto frontier. This is intentional and should be framed as such, not as a failure of either method.
+
+| Method | BCU poison | Write ASR | Retrieval | ASR | Items in memory |
+|---|---:|---:|---:|---:|---:|
+| MMA (retrieve-time) | 0.683 | 1.000 | 0.117 | 0.117 | 634 |
+| SAGE-Mem (write-time) | 0.350 | 0.000 | 0.000 | 0.000 | 213 |
+| ShortContext (no memory) | 0.100 | 0.000 | 0.000 | 0.000 | 8 |
+
+MMA achieves higher benign utility (BCU 0.68) by storing all observations (634 items) and filtering at retrieval time — at the cost of full write admission (Write ASR = 1.0). SAGE-Mem achieves zero write admission and zero retrieval contamination by gating writes aggressively, but stores fewer items (213) and preserves less utility (BCU 0.35). SAGE-Mem is strictly better than ShortContext (no-memory), confirming that the write-time gate adds value without collapsing to a degenerate baseline.
+
+The paper should present this as a Pareto plot with BCU poison on the y-axis and Write ASR on the x-axis, where MMA is the top-right point (high utility, high attack admission) and SAGE-Mem is the bottom-left point (lower utility, zero admission).
+
 ---
 
 ## 7. Reviewer-Resistant Positioning
@@ -615,13 +629,23 @@ The current draft preempts all these concerns by disclosing them explicitly rath
 
 ---
 
-## 10. Citation Placeholders
+## 10. References
 
-Insert real citations for:
-- memory poisoning in agent systems,
-- retrieval corruption / prompt injection,
-- multimodal prompt injection,
-- memory-augmented and long-horizon agent evaluation,
-- benchmark methodology for robustness and stress testing.
+**Memory poisoning and agent attacks**
+- Chan et al. (2024). *AGENTPOISON: Red-teaming LLM Agents via Poisoning Memory or Knowledge Bases.* NeurIPS 2024. arXiv:2407.12784
+- Dang et al. (2025). *Memory Injection Attacks on LLM Agents via Query-Only Interaction.* arXiv:2503.03704
+- (2026). *Zombie Agents: Persistent Control of Self-Evolving LLM Agents via Self-Reinforcing Injections.* arXiv:2602.15654
 
-Do not fabricate citations. The current draft should use explicit placeholders until the final bibliography is assembled.
+**Retrieval corruption, prompt injection, RAG robustness**
+- Zou, Geng et al. (2024). *PoisonedRAG: Knowledge Corruption Attacks to Retrieval-Augmented Generation of Large Language Models.* USENIX Security 2025. arXiv:2402.07867
+- Xiang et al. (2024). *GuardAgent: Safeguard LLM Agents by a Guard Agent via Knowledge-Enabled Reasoning.* arXiv:2406.09187
+- (2025). *A-MemGuard: A Proactive Defense Framework for LLM-Based Agent Memory.* arXiv:2510.02373
+- (2024). *Agent Security Bench (ASB): Formalizing and Benchmarking Attacks and Defenses in LLM-based Agents.* arXiv:2410.02644
+
+**Multimodal prompt injection and VLM attacks**
+- (2025). *AegisAgent: An Autonomous Defense Agent Against Prompt Injection Attacks in LLM-HARs.* arXiv:2512.20986
+
+**Memory-augmented agents and benchmarks**
+- Packer et al. (2023). *MemGPT: Towards LLMs as Operating Systems.* arXiv:2310.08560
+- Park et al. (2023). *Generative Agents: Interactive Simulacra of Human Behavior.* UIST 2023. arXiv:2304.03442
+- (2023). *AgentBench: Evaluating LLMs as Agents.* arXiv:2308.03688
