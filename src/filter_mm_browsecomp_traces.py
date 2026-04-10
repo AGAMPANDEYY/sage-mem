@@ -31,13 +31,13 @@ Quality gates are entirely content-based.
 
 Usage (applied to raw trace file):
     python src/filter_mm_browsecomp_traces.py \\
-        --traces data/mm_browsecomp_traces_ok.jsonl \\
+        --traces data/mm_browsecomp_traces_all.jsonl \\
         --out    data/mm_browsecomp_traces_filtered.jsonl \\
         --report
 
 Usage (applied to merged case file, also strips junk obs in-place):
     python src/filter_mm_browsecomp_traces.py \\
-        --cases  data/mm_browsecomp_cases_73.jsonl \\
+        --cases  data/mm_browsecomp_cases_filtered.jsonl \\
         --out    data/mm_browsecomp_cases_filtered.jsonl \\
         --report --drop-leakage
 """

@@ -145,11 +145,7 @@ CORE_CASE_CANDIDATES = (
 MM_BROWSECOMP_CANDIDATES = (
     # Quality-filtered subset (preferred) — content-based junk removal applied
     _REPO_ROOT / "data/mm_browsecomp_cases_filtered.jsonl",
-    # Legacy unfiltered sets (fallback only — not recommended for new runs)
-    _REPO_ROOT / "data/mm_browsecomp_cases_73.jsonl",
-    _REPO_ROOT / "data/mm_browsecomp_cases_14.jsonl",
-    _REPO_ROOT / "data/mm_browsecomp_augmented.jsonl",
-    _REPO_ROOT / "data/mm_browsecomp_cases.jsonl",
+    # Official raw files require trace preparation before paper-quality runs.
     _REPO_ROOT / "data/MM-BrowseComp/data/MMBrowseComp_400.jsonl",
     _REPO_ROOT / "data/MM-BrowseComp/data/MMBrowseComp.jsonl",
 )
