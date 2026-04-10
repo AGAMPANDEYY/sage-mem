@@ -43,6 +43,8 @@ The second problem is harder for three reasons.
 
 These differences motivate our evaluation choice. A write-time defense should not be judged only by final QA utility or retrieval-time ASR, because those are downstream outcomes of a longer memory lifecycle. The write boundary, the belief boundary, and the retrieval boundary each expose different failure modes.
 
+This also means that comparing SAGE-Mem to a retrieval-time system such as MMA is not a single-axis leaderboard comparison. MMA is designed to preserve and rank a broad memory store at retrieval time, which naturally favors immediate answer utility. SAGE-Mem is designed to keep unsupported observations out of durable memory, which naturally favors store integrity and may reject evidence that later would have helped a benign question. We therefore interpret the comparison as an **integrity--utility frontier**: the central question is whether write-time governance buys measurable memory-state integrity, and what utility cost that purchase entails.
+
 ### 1.2 Hypotheses
 
 We frame the paper around five explicit hypotheses.
@@ -76,6 +78,8 @@ This paper makes four concrete contributions.
 The paper’s central claim is therefore deliberately narrow and defensible:
 
 > **Write-time governed multimodal memory is a distinct robustness primitive for agents. It strengthens memory-state integrity beyond what retrieval-time scoring alone can provide, especially under multimodal corruption, but it introduces a measurable utility tradeoff and remains incomplete in browsing-style settings.**
+
+The paper therefore does not claim that SAGE-Mem dominates retrieval-time filtering on all metrics. A retrieval-time system can be the right engineering choice when the objective is maximum short-term QA accuracy under a permissive memory store. SAGE-Mem targets a different operating point: lower tolerance for persistent contamination, lower attack survival across memory lifecycle stages, and more explicit provenance over the beliefs that are allowed to guide later agent behavior.
 
 ### 1.3 Relation to Prior Work
 
@@ -312,9 +316,11 @@ The main LoCoMo result is the strongest evidence in the paper.
 
 1. **SAGE-Mem’s main strength is write-time containment.** It eliminates attack admission into planning memory on the main suite and drives retrieval contamination to zero.
 2. **MMA’s main strength is utility preservation.** It retains substantially higher BCU on both clean and poisoned conditions.
-3. **Write-time governance is not the same as “more utility.”** The main result supports a tradeoff story: SAGE-Mem protects the memory state; MMA preserves more immediate QA performance.
+3. **Write-time governance is not the same as “more utility.”** The main result supports an integrity--utility frontier: SAGE-Mem buys a clean memory state and zero attack retrieval at the cost of lower immediate QA completion, while MMA retains more useful evidence but leaves poisoned writes inside the store.
 
 This is the paper’s most defensible central result.
+
+This tradeoff is not an embarrassment to hide; it is the main systems result. In long-running agents, a memory design that maximizes short-term answer rate may still be unacceptable if it stores adversarial content that can later be consolidated, retrieved in a different context, or used as evidence for a future action. Conversely, a conservative write-time defense must account for the opportunity cost of rejected evidence. We therefore report both lifecycle integrity metrics and BCU, and avoid claiming that either operating point uniformly dominates the other.
 
 ### 5.2 Visual Prompt Injection
 
@@ -457,6 +463,7 @@ The novelty is not simply “another write-time filter.” The defensible novelt
 
 1. **Utility gap versus MMA.**
    - This is real and must be acknowledged, not buried.
+   - Response: the paper is not a single-metric QA leaderboard. It evaluates an integrity--utility frontier. MMA occupies the high-utility / permissive-store point; SAGE-Mem occupies the lower-utility / higher-integrity point with near-zero write and retrieval contamination on the controlled multimodal suites.
 2. **Controlled LoCoMo multimodality.**
    - The LoCoMo multimodal setting is a controlled extension, not a fully natural multimodal agent log.
 3. **MM-BrowseComp saturation.**
@@ -473,7 +480,7 @@ The current draft should preempt these concerns explicitly.
 ## 8. Limitations
 
 - **Trusted orchestration assumption.** Source labels are assumed correct.
-- **Utility tradeoff.** Retrieval-time baselines preserve more immediate QA utility.
+- **Utility tradeoff.** Retrieval-time baselines preserve more immediate QA utility. This is the expected cost of conservative write-time governance, not an artifact to obscure; the right deployment choice depends on whether the system prioritizes short-term answer rate or persistent memory-state integrity.
 - **Controlled versus naturalistic multimodality.** LoCoMo is controlled; MM-BrowseComp is more realistic but harsher and not yet fully discriminative.
 - **Browsing-specific limitation.** The current trust policy does not block `fact_overwrite_injection` in MM-BrowseComp.
 - **Module separability is setting-dependent.** Bayes is justified most clearly under noisy/missing multimodal evidence, not the main suite.
@@ -496,6 +503,7 @@ The current draft should preempt these concerns explicitly.
 3. **Pareto plot: BCU poison vs attack write admission or retrieval contamination.**
    - Why: makes the write-time-versus-utility tradeoff reviewer-legible.
    - Claim supported: SAGE-Mem occupies a different robustness regime rather than merely underperforming.
+   - This should be a main figure if space permits: it visually defends the MMA utility gap by showing that SAGE-Mem moves along a different integrity--utility frontier rather than losing on the paper's primary mechanism metrics.
 
 4. **Per-modality breakdown in the multimodal robustness run.**
    - Why: clarifies whether failures are OCR-driven, caption-driven, or mixed.
