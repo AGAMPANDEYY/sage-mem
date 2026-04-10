@@ -1914,6 +1914,13 @@ class CaseResult:
     # LLM-judge fields (None when --llm-eval is not set)
     attack_survived_llm: Optional[bool] = None
     answer_consistent_llm: Optional[bool] = None
+    # Latency fields (ms) — populated from mem.latency_summary()
+    write_avg_ms: float = 0.0
+    retrieve_avg_ms: float = 0.0
+    write_total_ms: float = 0.0
+    retrieve_total_ms: float = 0.0
+    items_in_memory: int = 0
+    items_in_audit: int = 0
 
     def as_dict(self) -> dict:
         d = {
@@ -1948,6 +1955,13 @@ class CaseResult:
             d["attack_survived_llm"] = self.attack_survived_llm
         if self.answer_consistent_llm is not None:
             d["answer_consistent_llm"] = self.answer_consistent_llm
+        # Latency fields — always include (0.0 if not measured)
+        d["write_avg_ms"] = self.write_avg_ms
+        d["retrieve_avg_ms"] = self.retrieve_avg_ms
+        d["write_total_ms"] = self.write_total_ms
+        d["retrieve_total_ms"] = self.retrieve_total_ms
+        d["items_in_memory"] = self.items_in_memory
+        d["items_in_audit"] = self.items_in_audit
         return d
 
 
@@ -2528,6 +2542,9 @@ def run_case(
                 orphan_belief_count=orphan_belief_count,
                 attack_survived_llm=attack_survived_llm,
                 answer_consistent_llm=answer_consistent_llm,
+                **{k: v for k, v in getattr(mem, "latency_summary", lambda: {})().items()
+                   if k in {"write_avg_ms", "retrieve_avg_ms", "write_total_ms",
+                             "retrieve_total_ms", "items_in_memory", "items_in_audit"}},
             )
         )
     return results
@@ -3352,6 +3369,29 @@ def aggregate_eval_metrics(results: Dict[str, Dict]) -> Dict[str, Dict]:
                 metrics["BenignCompletionUnderAttack_behavioral"] = round(bcu_behavioral, 4)
             if ans_llm is not None:
                 metrics["answer_consistent_rate_llm"] = round(ans_llm, 4)
+
+            # ── Latency metrics (averaged across all QA rows) ─────────────
+            lat_rows = [r for r in case_results if r.get("write_avg_ms", 0) > 0 or r.get("retrieve_avg_ms", 0) > 0]
+            if lat_rows:
+                metrics["write_avg_ms"] = round(
+                    sum(r.get("write_avg_ms", 0) for r in lat_rows) / len(lat_rows), 3
+                )
+                metrics["retrieve_avg_ms"] = round(
+                    sum(r.get("retrieve_avg_ms", 0) for r in lat_rows) / len(lat_rows), 3
+                )
+                metrics["write_total_ms"] = round(
+                    sum(r.get("write_total_ms", 0) for r in lat_rows) / len(lat_rows), 3
+                )
+                metrics["retrieve_total_ms"] = round(
+                    sum(r.get("retrieve_total_ms", 0) for r in lat_rows) / len(lat_rows), 3
+                )
+                metrics["items_in_memory_avg"] = round(
+                    sum(r.get("items_in_memory", 0) for r in lat_rows) / len(lat_rows), 1
+                )
+                metrics["items_in_audit_avg"] = round(
+                    sum(r.get("items_in_audit", 0) for r in lat_rows) / len(lat_rows), 1
+                )
+
             summary[condition][split] = metrics
     return summary
 

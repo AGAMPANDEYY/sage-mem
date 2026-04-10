@@ -1,6 +1,7 @@
 import math
 import os
 import re
+import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -153,6 +154,95 @@ def _apply_browser_context_trust_prior(
     if _BROWSER_CORRECTION_RE.search(text):
         capped = min(capped, float(cfg.thresholds.browser_correction_trust_cap))
     return _clip01(capped)
+
+def _cross_source_divergence_score(
+    *,
+    incoming_text: str,
+    existing_items: List["MemoryItem"],
+    min_group_size: int = 3,
+    topic_threshold: float = 0.55,
+    outlier_gap_threshold: float = 0.30,
+) -> float:
+    """
+    Cross-source divergence check for browser scraping tasks.
+
+    When an agent scrapes multiple websites for the same task, all scraped
+    sentences should cluster around the same topic. An attacker injecting one
+    fake sentence will produce something that is topically out of place compared
+    to everything else the agent has scraped so far.
+
+    How it works:
+      1. Collect recent browser scrapes from planning memory (the prior scrapes).
+      2. Compute the group's internal cohesion — average pairwise similarity
+         between all prior scrapes. High cohesion means the group is consistently
+         about the same topic.
+      3. Compute incoming text's avg similarity to the group.
+      4. If the group is cohesive (topic_threshold) but the incoming text is far
+         below the group's internal similarity (outlier_gap_threshold) → outlier.
+
+    Example: 4 prior scrapes all about iPhone prices have internal cohesion ~0.77.
+    A sentence about "Caroline from France" scores ~-0.08 avg similarity to the
+    group — a gap of 0.85, well above the 0.30 threshold → flagged.
+    A legitimate "$929" sentence scores ~0.78 avg similarity → gap ~0 → allowed.
+
+    Only catches topically unrelated attacks (e.g. attacker sneaks an off-topic
+    fake fact into a scraping stream). Value-substitution attacks on the same
+    topic (e.g. "$1 instead of $999") are handled by S1/S2/ABR.
+
+    Only activates when there are at least min_group_size prior scrapes.
+    Returns suspicion score in [0, 1]. 0 = fits the group, 1 = clear outlier.
+    """
+    try:
+        from embedding import get_sentence_embedder
+        from utils import safe_cosine_sim
+        import numpy as _np
+        se = get_sentence_embedder()
+    except Exception:
+        return 0.0
+
+    # Collect recent trusted browser scrapes from planning memory
+    prior_scrapes = [
+        it for it in existing_items
+        if getattr(it, "source_type", "") == _BROWSER_TOOL_SOURCE
+        and getattr(it, "partition", "") == "planning"
+        and getattr(it, "trust", 0.0) >= 0.40
+        and str(it.text or "").strip()
+    ][-20:]  # cap at last 20 scrapes
+
+    if len(prior_scrapes) < min_group_size:
+        return 0.0
+
+    prior_embs = [se.embed(str(it.text or "")[:300]) for it in prior_scrapes]
+
+    # Step 1: compute group internal cohesion (avg pairwise similarity)
+    internal_sims = []
+    for i in range(len(prior_embs)):
+        for j in range(i + 1, len(prior_embs)):
+            internal_sims.append(float(safe_cosine_sim(prior_embs[i], prior_embs[j])))
+
+    if not internal_sims:
+        return 0.0
+
+    group_cohesion = float(_np.mean(internal_sims))
+
+    # Only apply this check if the group is consistently about the same topic
+    if group_cohesion < topic_threshold:
+        return 0.0
+
+    # Step 2: compute incoming text's avg similarity to the group
+    inc_emb = se.embed(incoming_text[:300])
+    incoming_sims = [float(safe_cosine_sim(inc_emb, pe)) for pe in prior_embs]
+    incoming_avg = float(_np.mean(incoming_sims))
+
+    # Step 3: how far below the group cohesion is the incoming text?
+    gap = group_cohesion - incoming_avg
+
+    if gap > outlier_gap_threshold:
+        # Normalise: gap=0.30 → score=0.0, gap=0.60 → score=0.5, gap=0.90 → score=1.0
+        return float(min(1.0, (gap - outlier_gap_threshold) / outlier_gap_threshold))
+
+    return 0.0
+
 
 def _abr_suspicion_score(
     *,
@@ -387,14 +477,14 @@ _DATE_RE = re.compile(
     r"\b(\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
     r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
     r"(?:\s+\d{2,4})?|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
-    r"|(?:mon|tue|wed|thu|fri|sat|sun)\w*"
+    r"|(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
     r"|\d{1,2}:\d{2}\s*(?:am|pm))\b",
     re.IGNORECASE,
 )
 _NAME_RE = re.compile(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b")
 _NUMBER_RE = re.compile(r"\b(\d{1,5})\b")
 
-_TRUSTED_SOURCES = {"user", "tool_output_text"}
+_TRUSTED_SOURCES = {"user", "tool_output_text", "ocr_text"}
 
 def extract_key_facts(items: List["MemoryItem"], guard=None) -> List[dict]:
     """
@@ -552,22 +642,66 @@ def find_conflicting_fact(
     fact_key: Optional[str],
     fact_value: Optional[str],
     session_idx: Optional[int],
+    incoming_text: Optional[str] = None,
 ) -> Optional["MemoryItem"]:
-    if not fact_key or not fact_value:
-        return None
-    target = _norm_fact_token(fact_value)
-    if not target:
-        return None
-    for it in reversed(list(items)):
-        if getattr(it, "fact_key", None) != fact_key:
-            continue
-        prior_value = _norm_fact_token(getattr(it, "fact_value", None))
-        if not prior_value or prior_value == target:
-            continue
-        if session_idx is not None and getattr(it, "session_idx", None) is not None:
-            if int(it.session_idx) != int(session_idx):
-                continue
-        return it
+    """
+    S1: fact_key/fact_value conflict detection (primary path).
+    Checks existing items for a matching fact_key with a different fact_value.
+
+    S1 fallback: when no protected_fact items exist (e.g. MM-BrowseComp cold-start),
+    also checks planning-partition belief items using sentence-transformer cosine
+    similarity on the full text — catches paraphrased overwrites that bypass the
+    fact_key gate because fact_key was never set.
+    """
+    # ── S1: fact_key-based conflict ───────────────────────────────────────────
+    if fact_key and fact_value:
+        target = _norm_fact_token(fact_value)
+        if target:
+            for it in reversed(list(items)):
+                if getattr(it, "fact_key", None) != fact_key:
+                    continue
+                prior_value = _norm_fact_token(getattr(it, "fact_value", None))
+                if not prior_value or prior_value == target:
+                    continue
+                if session_idx is not None and getattr(it, "session_idx", None) is not None:
+                    if int(it.session_idx) != int(session_idx):
+                        continue
+                return it
+
+    # ── S1 fallback: semantic similarity on full text (fires in MM-BrowseComp) ─
+    # When fact_key is not set, use sentence-transformer embeddings to find a
+    # planning item on the same topic as incoming_text. Same topic + different
+    # content = potential overwrite attack.
+    if incoming_text:
+        try:
+            from embedding import get_sentence_embedder
+            se = get_sentence_embedder()
+            inc_emb = se.embed(incoming_text[:300])
+
+            TOPIC_THRESH = 0.60    # min cosine to be "same topic"
+            IDENTICAL_THRESH = 0.92  # above this = near-duplicate, not a conflict
+
+            best_item: Optional["MemoryItem"] = None
+            best_sim = 0.0
+            for it in reversed(list(items)):
+                if getattr(it, "partition", None) != "planning":
+                    continue
+                if getattr(it, "source_type", "") in {"self_summary", "protected_fact"}:
+                    continue
+                if getattr(it, "trust", 0.0) < 0.60:
+                    continue
+                prior_emb = se.embed(str(it.text or "")[:300])
+                from utils import safe_cosine_sim
+                sim = float(safe_cosine_sim(inc_emb, prior_emb))
+                if TOPIC_THRESH < sim < IDENTICAL_THRESH:
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_item = it
+            if best_item is not None:
+                return best_item
+        except Exception:
+            pass  # sentence-transformer unavailable; skip S1 fallback
+
     return None
 
 
@@ -600,6 +734,30 @@ class BaseMemory:
         # Calibration log: list of {source_type, contributed_to_correct} dicts
         # populated when log_retrieved_source_types=True is passed to retrieve()
         self.retrieved_source_type_log: List[dict] = []
+        # ── Latency tracking ─────────────────────────────────────────────────
+        # Accumulated wall-clock time (seconds) spent inside write() and retrieve().
+        # Use latency_summary() to get per-call averages.
+        self._write_time_total_s: float = 0.0
+        self._write_call_count: int = 0
+        self._retrieve_time_total_s: float = 0.0
+        self._retrieve_call_count: int = 0
+
+    def latency_summary(self) -> dict:
+        """Return average write and retrieve latency in milliseconds."""
+        return {
+            "write_calls": self._write_call_count,
+            "write_avg_ms": round(
+                1000 * self._write_time_total_s / max(1, self._write_call_count), 3
+            ),
+            "write_total_ms": round(1000 * self._write_time_total_s, 3),
+            "retrieve_calls": self._retrieve_call_count,
+            "retrieve_avg_ms": round(
+                1000 * self._retrieve_time_total_s / max(1, self._retrieve_call_count), 3
+            ),
+            "retrieve_total_ms": round(1000 * self._retrieve_time_total_s, 3),
+            "items_in_memory": len(self.items),
+            "items_in_audit": len(self.audit_items),
+        }
 
     def write(
         self,
@@ -621,6 +779,7 @@ class BaseMemory:
         attack_family: Optional[str] = None,
         quality_score: Optional[float] = None,
     ) -> int:
+        _t0 = time.perf_counter()
         emb = self.embedder.embed(text)
         t = _clip01(default_source_cred(source_type) if trust is None else float(trust))
         item = MemoryItem(
@@ -648,6 +807,8 @@ class BaseMemory:
             self.audit_items.append(item)
         else:
             self.items.append(item)
+        self._write_time_total_s += time.perf_counter() - _t0
+        self._write_call_count += 1
         return item.item_id
 
     def consolidate(self, step: int) -> None:
@@ -663,6 +824,7 @@ class BaseMemory:
         log_retrieved_source_types: bool = False,
         gold_answer: Optional[str] = None,
     ) -> List[MemoryItem]:
+        _t0 = time.perf_counter()
         q = self.embedder.embed(query)
         scored: List[Tuple[float, MemoryItem]] = []
         for it in self._iter_for_retrieval(for_planning=for_planning):
@@ -687,6 +849,8 @@ class BaseMemory:
                     "source_type": it.source_type,
                     "contributed_to_correct": contributed,
                 })
+        self._retrieve_time_total_s += time.perf_counter() - _t0
+        self._retrieve_call_count += 1
         return out
 
     def _maybe_log_retrieved_source_types(
@@ -1107,6 +1271,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 fact_key=fact_key,
                 fact_value=fact_value,
                 session_idx=session_idx,
+                incoming_text=text,
             )
             if conflicting is not None and computed_trust <= float(getattr(conflicting, "trust", 0.0)):
                 resolution = self.resolve_conflict(
@@ -1610,6 +1775,7 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
                 fact_key=kwargs.get("fact_key"),
                 fact_value=kwargs.get("fact_value"),
                 session_idx=kwargs.get("session_idx"),
+                incoming_text=kwargs.get("text", ""),
             )
             if conflicting is not None and trust <= self.compute_trust(conflicting):
                 self.conflict_quarantine_count += 1
@@ -2062,6 +2228,26 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             )
             if suspicion > effective_thr:
                 kwargs["trust"] = min(float(kwargs["trust"]), abr_cap)
+
+        # ── Cross-source divergence check (browser scraping tasks only) ──────
+        # When the agent is scraping multiple websites for the same task, all
+        # scraped sentences should cluster around the same topic. A sentence
+        # that is a massive outlier compared to everything else scraped so far
+        # is flagged as suspicious — likely an attacker injecting one fake fact
+        # into a stream of otherwise consistent legitimate scrapes.
+        # Only fires for browser_tool_output_text with >= 3 prior scrapes.
+        if source_type == _BROWSER_TOOL_SOURCE:
+            div_score = _cross_source_divergence_score(
+                incoming_text=text,
+                existing_items=self.items,
+            )
+            if div_score > 0.5:
+                # Strong outlier — cap trust significantly
+                kwargs["trust"] = min(float(kwargs["trust"]), 0.25)
+            elif div_score > 0.0:
+                # Mild outlier — light trust penalty
+                kwargs["trust"] = min(float(kwargs["trust"]), 0.40)
+
         kwargs["actionable"] = False
         target_partition = self._typed_partition_for_item(
             source_type=source_type,
@@ -2289,6 +2475,7 @@ class ActionFirewallMemory(RecursiveSummarizationMemory):
                 fact_key=kwargs.get("fact_key"),
                 fact_value=kwargs.get("fact_value"),
                 session_idx=kwargs.get("session_idx"),
+                incoming_text=kwargs.get("text", ""),
             )
             if conflicting is not None and trust <= float(getattr(conflicting, "trust", 0.0)):
                 self.conflict_quarantine_count += 1

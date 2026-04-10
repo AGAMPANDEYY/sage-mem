@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -32,3 +32,40 @@ class HashedTextEmbedder:
         if not np.isfinite(vec).all():
             vec = np.zeros((self.dim,), dtype=np.float32)
         return vec
+
+
+class SentenceTransformerEmbedder:
+    """
+    Semantic embedder using all-MiniLM-L6-v2 from sentence-transformers.
+    Replaces HashedTextEmbedder for S2 conflict detection in the consistency
+    graph — catches paraphrased fact overwrites that hash-based cosine misses.
+    Lazy-loaded on first use so import cost is zero when not used.
+    """
+    MODEL_NAME = "all-MiniLM-L6-v2"
+
+    def __init__(self) -> None:
+        self._model = None
+        self.dim = 384  # all-MiniLM-L6-v2 output dimension
+
+    def _load(self):
+        if self._model is None:
+            from sentence_transformers import SentenceTransformer
+            self._model = SentenceTransformer(self.MODEL_NAME)
+
+    def embed(self, text: str) -> np.ndarray:
+        self._load()
+        text = text.strip()
+        if not text:
+            return np.zeros(self.dim, dtype=np.float32)
+        vec = self._model.encode(text, normalize_embeddings=True, show_progress_bar=False)
+        return np.array(vec, dtype=np.float32)
+
+
+# Singleton — shared across all consistency graph instances
+_sentence_embedder: Optional[SentenceTransformerEmbedder] = None
+
+def get_sentence_embedder() -> SentenceTransformerEmbedder:
+    global _sentence_embedder
+    if _sentence_embedder is None:
+        _sentence_embedder = SentenceTransformerEmbedder()
+    return _sentence_embedder
