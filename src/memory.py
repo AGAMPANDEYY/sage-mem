@@ -553,22 +553,66 @@ def find_conflicting_fact(
     fact_key: Optional[str],
     fact_value: Optional[str],
     session_idx: Optional[int],
+    incoming_text: Optional[str] = None,
 ) -> Optional["MemoryItem"]:
-    if not fact_key or not fact_value:
-        return None
-    target = _norm_fact_token(fact_value)
-    if not target:
-        return None
-    for it in reversed(list(items)):
-        if getattr(it, "fact_key", None) != fact_key:
-            continue
-        prior_value = _norm_fact_token(getattr(it, "fact_value", None))
-        if not prior_value or prior_value == target:
-            continue
-        if session_idx is not None and getattr(it, "session_idx", None) is not None:
-            if int(it.session_idx) != int(session_idx):
-                continue
-        return it
+    """
+    S1: fact_key/fact_value conflict detection (primary path).
+    Checks existing items for a matching fact_key with a different fact_value.
+
+    S1 fallback: when no protected_fact items exist (e.g. MM-BrowseComp cold-start),
+    also checks planning-partition belief items using sentence-transformer cosine
+    similarity on the full text — catches paraphrased overwrites that bypass the
+    fact_key gate because fact_key was never set.
+    """
+    # ── S1: fact_key-based conflict ───────────────────────────────────────────
+    if fact_key and fact_value:
+        target = _norm_fact_token(fact_value)
+        if target:
+            for it in reversed(list(items)):
+                if getattr(it, "fact_key", None) != fact_key:
+                    continue
+                prior_value = _norm_fact_token(getattr(it, "fact_value", None))
+                if not prior_value or prior_value == target:
+                    continue
+                if session_idx is not None and getattr(it, "session_idx", None) is not None:
+                    if int(it.session_idx) != int(session_idx):
+                        continue
+                return it
+
+    # ── S1 fallback: semantic similarity on full text (fires in MM-BrowseComp) ─
+    # When fact_key is not set, use sentence-transformer embeddings to find a
+    # planning item on the same topic as incoming_text. Same topic + different
+    # content = potential overwrite attack.
+    if incoming_text:
+        try:
+            from embedding import get_sentence_embedder
+            se = get_sentence_embedder()
+            inc_emb = se.embed(incoming_text[:300])
+
+            TOPIC_THRESH = 0.60    # min cosine to be "same topic"
+            IDENTICAL_THRESH = 0.92  # above this = near-duplicate, not a conflict
+
+            best_item: Optional["MemoryItem"] = None
+            best_sim = 0.0
+            for it in reversed(list(items)):
+                if getattr(it, "partition", None) != "planning":
+                    continue
+                if getattr(it, "source_type", "") in {"self_summary", "protected_fact"}:
+                    continue
+                if getattr(it, "trust", 0.0) < 0.60:
+                    continue
+                prior_emb = se.embed(str(it.text or "")[:300])
+                from utils import safe_cosine_sim
+                sim = float(safe_cosine_sim(inc_emb, prior_emb))
+                if TOPIC_THRESH < sim < IDENTICAL_THRESH:
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_item = it
+            if best_item is not None:
+                return best_item
+        except Exception:
+            pass  # sentence-transformer unavailable; skip S1 fallback
+
     return None
 
 
@@ -1138,6 +1182,7 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 fact_key=fact_key,
                 fact_value=fact_value,
                 session_idx=session_idx,
+                incoming_text=text,
             )
             if conflicting is not None and computed_trust <= float(getattr(conflicting, "trust", 0.0)):
                 resolution = self.resolve_conflict(
@@ -1641,6 +1686,7 @@ class MonotoneProvenanceLedgerMemory(RecursiveSummarizationMemory):
                 fact_key=kwargs.get("fact_key"),
                 fact_value=kwargs.get("fact_value"),
                 session_idx=kwargs.get("session_idx"),
+                incoming_text=kwargs.get("text", ""),
             )
             if conflicting is not None and trust <= self.compute_trust(conflicting):
                 self.conflict_quarantine_count += 1
@@ -2320,6 +2366,7 @@ class ActionFirewallMemory(RecursiveSummarizationMemory):
                 fact_key=kwargs.get("fact_key"),
                 fact_value=kwargs.get("fact_value"),
                 session_idx=kwargs.get("session_idx"),
+                incoming_text=kwargs.get("text", ""),
             )
             if conflicting is not None and trust <= float(getattr(conflicting, "trust", 0.0)):
                 self.conflict_quarantine_count += 1

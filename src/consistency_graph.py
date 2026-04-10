@@ -49,7 +49,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 
 from config import SAGEMemConfig
-from embedding import HashedTextEmbedder
+from embedding import HashedTextEmbedder, get_sentence_embedder
 from utils import safe_cosine_sim
 
 
@@ -232,7 +232,13 @@ class MultiTurnConsistencyGraph:
         Add a write event to the graph and compute edges to existing nodes.
         Returns the new node (does not modify memory state — the graph is advisory).
         """
-        emb = self._embedder.embed(text)
+        # S2: use sentence-transformer embeddings for semantic contradiction detection.
+        # Catches paraphrased overwrites (e.g. "Sweden" → "France") that hash-based
+        # cosine misses because individual word hashes don't encode meaning.
+        try:
+            emb = get_sentence_embedder().embed(text)
+        except Exception:
+            emb = self._embedder.embed(text)  # fallback to hash embedder if ST unavailable
         nid = self._node_counter
         self._node_counter += 1
 
