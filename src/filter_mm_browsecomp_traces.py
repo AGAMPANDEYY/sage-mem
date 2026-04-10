@@ -146,7 +146,7 @@ def _is_junk_obs(obs: dict) -> Tuple[bool, str]:
             return True, f"low_signal:{pat!r}"
 
     # 2. 404 / page-not-found patterns on web pages only
-    if source_type == "tool_output_text":
+    if source_type in {"tool_output_text", "browser_tool_output_text"}:
         for pat in PAGE_NOT_FOUND_PATTERNS:
             if pat in text_lower:
                 return True, f"page_not_found:{pat!r}"

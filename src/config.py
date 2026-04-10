@@ -131,6 +131,18 @@ class ThresholdConfig:
     visual_evidence_base_quality: float
     unsupported_visual_penalty: float
     planning_evidence_quality_floor: float
+    browser_tool_trust_cap: float
+    browser_correction_trust_cap: float
+
+    # Adversarial Belief Revision (ABR) — composite semantic suspicion scorer
+    # that replaces the keyword regex for browser_tool_output_text writes.
+    # Grounded in: composite trust scoring (Zhu et al. 2026), RA-RAG corroboration
+    # (Shi et al. 2024), and moving-target adaptive hardening (CLATTER 2025).
+    abr_suspicion_threshold: float   # fire ABR gate when suspicion > this
+    abr_trust_cap: float             # trust ceiling when ABR fires
+    abr_topic_sim_threshold: float   # cosine sim above which an obs is "on-topic"
+    abr_corroboration_needed: int    # # of corroborating items to fully suppress S3
+    abr_noise_scale: float           # ±uniform jitter on threshold (moving target)
 
     def __post_init__(self):
         _assert_unit("write_trust_threshold", self.write_trust_threshold)
@@ -151,6 +163,16 @@ class ThresholdConfig:
         _assert_unit("visual_evidence_base_quality", self.visual_evidence_base_quality)
         _assert_unit("unsupported_visual_penalty", self.unsupported_visual_penalty)
         _assert_unit("planning_evidence_quality_floor", self.planning_evidence_quality_floor)
+        _assert_unit("browser_tool_trust_cap", self.browser_tool_trust_cap)
+        _assert_unit("browser_correction_trust_cap", self.browser_correction_trust_cap)
+        _assert_unit("abr_suspicion_threshold", self.abr_suspicion_threshold)
+        _assert_unit("abr_trust_cap", self.abr_trust_cap)
+        _assert_unit("abr_topic_sim_threshold", self.abr_topic_sim_threshold)
+        _assert_unit("abr_noise_scale", self.abr_noise_scale)
+        if self.abr_corroboration_needed < 1:
+            raise ValueError("abr_corroboration_needed must be >= 1")
+        if self.browser_correction_trust_cap > self.browser_tool_trust_cap:
+            raise ValueError("browser_correction_trust_cap must be <= browser_tool_trust_cap")
         if not math.isfinite(self.channel_reputation_recovery) or self.channel_reputation_recovery < 1.0:
             raise ValueError("channel_reputation_recovery must be a finite float >= 1.0")
         if self.belief_promotion_min_support < 1:
@@ -312,6 +334,13 @@ class SAGEMemConfig:
             visual_evidence_base_quality=float(t.get("visual_evidence_base_quality", 0.90)),
             unsupported_visual_penalty=float(t.get("unsupported_visual_penalty", 0.70)),
             planning_evidence_quality_floor=float(t.get("planning_evidence_quality_floor", 0.35)),
+            browser_tool_trust_cap=float(t.get("browser_tool_trust_cap", 0.35)),
+            browser_correction_trust_cap=float(t.get("browser_correction_trust_cap", 0.20)),
+            abr_suspicion_threshold=float(t.get("abr_suspicion_threshold", 0.45)),
+            abr_trust_cap=float(t.get("abr_trust_cap", 0.10)),
+            abr_topic_sim_threshold=float(t.get("abr_topic_sim_threshold", 0.50)),
+            abr_corroboration_needed=int(t.get("abr_corroboration_needed", 3)),
+            abr_noise_scale=float(t.get("abr_noise_scale", 0.05)),
             consolidation_summary_trust=float(t.get("consolidation_summary_trust", 0.70)),
         )
 
@@ -386,6 +415,13 @@ class SAGEMemConfig:
                 "visual_evidence_base_quality": self.thresholds.visual_evidence_base_quality,
                 "unsupported_visual_penalty": self.thresholds.unsupported_visual_penalty,
                 "planning_evidence_quality_floor": self.thresholds.planning_evidence_quality_floor,
+                "browser_tool_trust_cap": self.thresholds.browser_tool_trust_cap,
+                "browser_correction_trust_cap": self.thresholds.browser_correction_trust_cap,
+                "abr_suspicion_threshold": self.thresholds.abr_suspicion_threshold,
+                "abr_trust_cap": self.thresholds.abr_trust_cap,
+                "abr_topic_sim_threshold": self.thresholds.abr_topic_sim_threshold,
+                "abr_corroboration_needed": self.thresholds.abr_corroboration_needed,
+                "abr_noise_scale": self.thresholds.abr_noise_scale,
             },
             "calibrated": self.calibrated,
             "calibration_source": self.calibration_source,

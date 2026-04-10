@@ -27,6 +27,7 @@ COND_SHORT = {
     "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": "H1",
     "SAGEMem_SourceAttestedGuardedEpisodicMemory": "SAGE-Mem v1",
     "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect": "SAGE-Mem v2",
+    "SAGEMemV2_BrowsingTrustPrior": "v2 BrowsePrior",
     "SAGEMemV2_NoBayes": "v2 NoBayes",
     "SAGEMemV2_NoAnomaly": "v2 NoAnom",
     "SAGEMemV2_NoConsistency": "v2 NoCons",

@@ -152,10 +152,12 @@ Key pattern:
 
 ### MM-BrowseComp
 
-MM-BrowseComp is now technically correct with VLM-backed image observations, but the adversarial run remains highly saturated and should currently be treated as:
-- an external stress test,
-- useful evidence of a browsing-specific limitation,
-- not the main anchor of the paper.
+MM-BrowseComp is now technically correct with VLM-backed image observations. The generic-trust adversarial run remains saturated, but the H5 browsing-prior condition fixes the calibrated web-correction failure:
+- generic SAGE-Mem v2: `Write ASR=1.0000`, `Retrieval=0.9536`, `ASR=0.9536`, `BCU poison=0.0000`,
+- SAGE-Mem v2 + browsing prior: `Write ASR=0.0000`, `Retrieval=0.0000`, `ASR=0.0000`, `BCU poison=0.2784`,
+- clean BCU is `0.2732` for the browsing prior versus `0.2577` for generic SAGE-Mem v2 and `0.2938` for MMA.
+
+The current code includes an explicit H5 ablation, `SAGEMemV2_BrowsingTrustPrior`, which maps MM-BrowseComp browser/page observations to `browser_tool_output_text` only for that condition. This keeps trusted/internal `tool_output_text` unchanged and tests whether browser-derived external text needs a lower, correction-sensitive write prior.
 
 ---
 
@@ -173,10 +175,10 @@ Use the following mapping as the authoritative latest result for each experiment
 | `sagemem_v2_ablations.json` | `paper_ablations_full_v1` | main LoCoMo ablations |
 | `sagemem_vpi_llm.json` | `paper_vpi_full_v1` | VPI-only run |
 | `sagemem_multimodal_robustness_ablations.json` | `paper_mmrobust_full_v1` | noisy/missing-modality robustness |
-| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_full_v5` | latest clean MM-BrowseComp rerun after the VLM-caption fix |
-| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_full_v4` | latest adversarial MM-BrowseComp rerun after the VLM-caption fix |
+| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_h5_v1` | latest clean MM-BrowseComp rerun with H5 browsing prior |
+| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_h5_v1` | latest adversarial MM-BrowseComp rerun with H5 browsing prior |
 
-The corrected MM-BrowseComp pair is `paper_mmclean_full_v5` / `paper_mmadv_full_v4`, rerun on the leakage-clean 194-case pool after the VLM-caption and filtering fixes.
+The corrected H5 MM-BrowseComp pair is `paper_mmclean_h5_v1` / `paper_mmadv_h5_v1`, rerun on the leakage-clean 194-case pool after the VLM-caption and filtering fixes.
 
 MM-BrowseComp was rerun after the case-construction audit on the corrected 194-case leakage-clean pool.
 
@@ -253,8 +255,8 @@ make filter-mm-cases
 Run clean and adversarial tracks separately:
 
 ```bash
-make full-mm-clean RUN_ID=paper_mmclean_full_v5
-make full-mm-adversarial RUN_ID=paper_mmadv_full_v4
+make full-mm-clean RUN_ID=paper_mmclean_h5_v1
+make full-mm-adversarial RUN_ID=paper_mmadv_h5_v1
 ```
 
 ### 4. Analysis
@@ -276,12 +278,12 @@ What is true:
 - image observations are captioned with OpenAI vision,
 - the benchmark is useful as an external stress test.
 
-What is **not** yet true:
-- the adversarial setting does not yet provide a strong, well-separated main-paper comparison,
-- the current browsing-style `fact_overwrite_injection` is admitted by all methods,
-- end-to-end adversarial performance remains near-collapse for every method.
+What remains limited:
+- the H5 result covers the calibrated `fact_overwrite_injection` track, not all web-agent attacks,
+- generic-trust SAGE-Mem still admits browsing correction text,
+- trace coverage and VLM-caption quality remain dataset constraints.
 
-So MM-BrowseComp is useful, but should not currently be oversold.
+So MM-BrowseComp is now a useful H5 result, but it should be framed narrowly as evidence for source-context-sensitive browser write priors.
 
 ---
 

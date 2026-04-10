@@ -25,6 +25,7 @@ MM_TRACE_WORKERS ?= 8
 	smoke-v2-ablations smoke-mm-robust smoke-mm-openai-frozen \
 	full-main full-main-llm full-vpi full-vpi-llm full-stress-llm \
 	full-mm full-mm-clean full-mm-adversarial \
+	full-mm-abr-clean full-mm-abr-adversarial \
 	full-v2-ablations full-mm-robust full-mm-robust-ablations full-mm-openai-frozen \
 	build-mm-traces filter-mm-cases
 
@@ -132,15 +133,15 @@ smoke-stress-llm:
 
 smoke-mm:
 	mkdir -p $(RUN_DIR)
-	$(PYTHON) run_eval.py --quick --sage-v2 --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --vision-caption-mode openai --disable-cross-topic --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --case-limit $(CASE_LIMIT) --out $(RUN_DIR)/smoke_mm_browsecomp.json
+	$(PYTHON) run_eval.py --quick --sage-v2 --include-browsing-prior --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --vision-caption-mode openai --disable-cross-topic --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --case-limit $(CASE_LIMIT) --out $(RUN_DIR)/smoke_mm_browsecomp.json
 
 smoke-mm-clean:
 	mkdir -p $(RUN_DIR)
-	$(PYTHON) run_eval.py --quick --sage-v2 --run-mm-browsecomp --mm-only --mm-splits clean --vision-caption-mode openai --disable-cross-topic --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --case-limit $(CASE_LIMIT) --out $(RUN_DIR)/smoke_mm_browsecomp_clean.json
+	$(PYTHON) run_eval.py --quick --sage-v2 --include-browsing-prior --run-mm-browsecomp --mm-only --mm-splits clean --vision-caption-mode openai --disable-cross-topic --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --case-limit $(CASE_LIMIT) --out $(RUN_DIR)/smoke_mm_browsecomp_clean.json
 
 smoke-mm-adversarial:
 	mkdir -p $(RUN_DIR)
-	$(PYTHON) run_eval.py --quick --sage-v2 --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --mm-splits poisoned --vision-caption-mode openai --disable-cross-topic --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --case-limit $(CASE_LIMIT) --out $(RUN_DIR)/smoke_mm_browsecomp_adversarial.json
+	$(PYTHON) run_eval.py --quick --sage-v2 --include-browsing-prior --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --mm-splits poisoned --vision-caption-mode openai --disable-cross-topic --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --case-limit $(CASE_LIMIT) --out $(RUN_DIR)/smoke_mm_browsecomp_adversarial.json
 
 smoke-v2-ablations:
 	mkdir -p $(RUN_DIR)
@@ -176,12 +177,12 @@ full-stress-llm:
 
 full-mm:
 	mkdir -p $(RUN_DIR)
-	$(PYTHON) run_eval.py --sage-v2 --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --vision-caption-mode openai --position-mode $(POSITION_MODE) --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --seeds $(SEEDS) --out $(RUN_DIR)/sagemem_mm_browsecomp.json
+	$(PYTHON) run_eval.py --sage-v2 --include-browsing-prior --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --vision-caption-mode openai --position-mode $(POSITION_MODE) --checkpoint-every $(CHECKPOINT_EVERY) $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --seeds $(SEEDS) --out $(RUN_DIR)/sagemem_mm_browsecomp.json
 
 # MM-BrowseComp clean track: no attack injection, measures baseline utility on filtered cases
 full-mm-clean:
 	mkdir -p $(RUN_DIR)
-	$(PYTHON) run_eval.py --sage-v2 --run-mm-browsecomp --mm-only --mm-splits clean \
+	$(PYTHON) run_eval.py --sage-v2 --include-browsing-prior --run-mm-browsecomp --mm-only --mm-splits clean \
 	  --vision-caption-mode openai \
 	  --position-mode $(POSITION_MODE) --checkpoint-every $(CHECKPOINT_EVERY) \
 	  $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --seeds $(SEEDS) \
@@ -190,11 +191,31 @@ full-mm-clean:
 # MM-BrowseComp adversarial track: browsing-native attacks only, measures robustness
 full-mm-adversarial:
 	mkdir -p $(RUN_DIR)
-	$(PYTHON) run_eval.py --sage-v2 --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --mm-splits poisoned \
+	$(PYTHON) run_eval.py --sage-v2 --include-browsing-prior --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --mm-splits poisoned \
 	  --vision-caption-mode openai \
 	  --position-mode $(POSITION_MODE) --checkpoint-every $(CHECKPOINT_EVERY) \
 	  $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --seeds $(SEEDS) \
 	  --out $(RUN_DIR)/sagemem_mm_browsecomp_adversarial.json
+
+# ABR (H6) clean track: baseline utility with composite suspicion scorer active
+full-mm-abr-clean:
+	mkdir -p $(RUN_DIR)
+	$(PYTHON) run_eval.py --sage-v2 --include-browsing-prior --include-abr --run-mm-browsecomp --mm-only --mm-splits clean \
+	  --vision-caption-mode openai \
+	  --position-mode $(POSITION_MODE) --checkpoint-every $(CHECKPOINT_EVERY) \
+	  $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --seeds $(SEEDS) \
+	  --out $(RUN_DIR)/sagemem_mm_browsecomp_abr_clean.json
+
+# ABR (H6) adversarial track: both fact_overwrite_injection AND fact_overwrite_adaptive
+# This is the honest adaptive adversary evaluation for H6.
+full-mm-abr-adversarial:
+	mkdir -p $(RUN_DIR)
+	$(PYTHON) run_eval.py --sage-v2 --include-browsing-prior --include-abr \
+	  --attack-suite mm_browsecomp --run-mm-browsecomp --mm-only --mm-splits poisoned \
+	  --vision-caption-mode openai \
+	  --position-mode $(POSITION_MODE) --checkpoint-every $(CHECKPOINT_EVERY) \
+	  $(MAX_WORKERS_FLAG) $(RESUME_FLAG) $(CASE_FRACTION_FLAG) --seeds $(SEEDS) \
+	  --out $(RUN_DIR)/sagemem_mm_browsecomp_abr_adversarial.json
 
 full-v2-ablations:
 	mkdir -p $(RUN_DIR)

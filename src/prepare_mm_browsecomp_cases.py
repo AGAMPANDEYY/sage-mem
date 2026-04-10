@@ -111,7 +111,7 @@ def _is_junk_obs(obs: dict, *, min_ocr_chars: int, min_tool_chars: int = _MIN_TO
         if pat in text_lower:
             return True, f"low_signal:{pat!r}"
 
-    if source_type == "tool_output_text":
+    if source_type in {"tool_output_text", "browser_tool_output_text"}:
         for pat in _PAGE_NOT_FOUND_PATTERNS:
             if pat in text_lower:
                 return True, f"page_not_found:{pat!r}"
@@ -174,7 +174,7 @@ def _validate_observations(case_id: str, observations: object) -> List[dict]:
         if not text:
             raise ValueError(f"{case_id}: observation {idx} has empty text")
         source_type = str(obs.get("source_type", "")).strip()
-        if source_type not in {"ocr_text", "vision_caption", "tool_output_text", "user"}:
+        if source_type not in {"ocr_text", "vision_caption", "tool_output_text", "browser_tool_output_text", "user"}:
             raise ValueError(
                 f"{case_id}: observation {idx} has unsupported source_type={source_type!r}"
             )

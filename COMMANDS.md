@@ -145,24 +145,25 @@ Output:
 ### Clean track
 
 ```bash
-make full-mm-clean RUN_ID=paper_mmclean_full_v5
+make full-mm-clean RUN_ID=paper_mmclean_h5_v1
 ```
 
 Output:
-- `results/paper_mmclean_full_v5/sagemem_mm_browsecomp_clean.json`
+- `results/paper_mmclean_h5_v1/sagemem_mm_browsecomp_clean.json`
 
 ### Adversarial track
 
 ```bash
-make full-mm-adversarial RUN_ID=paper_mmadv_full_v4
+make full-mm-adversarial RUN_ID=paper_mmadv_h5_v1
 ```
 
 Output:
-- `results/paper_mmadv_full_v4/sagemem_mm_browsecomp_adversarial.json`
+- `results/paper_mmadv_h5_v1/sagemem_mm_browsecomp_adversarial.json`
 
 Interpretation guidance:
-- these are now technically correct VLM-backed runs,
-- but MM-BrowseComp should currently be treated as an external stress test, not the main empirical anchor.
+- these runs include `--include-browsing-prior`,
+- `SAGEMemV2_BrowsingTrustPrior` is the explicit H5 condition,
+- compare it against generic `SAGE-Mem v2` to test whether browsing-derived external text needs a source-context prior.
 
 ---
 
@@ -181,8 +182,8 @@ make analyze-run RUN_ID=paper_main_full_v1
 make analyze-run RUN_ID=paper_ablations_full_v1
 make analyze-run RUN_ID=paper_vpi_full_v1
 make analyze-run RUN_ID=paper_mmrobust_full_v1
-make analyze-run RUN_ID=paper_mmclean_full_v5
-make analyze-run RUN_ID=paper_mmadv_full_v4
+make analyze-run RUN_ID=paper_mmclean_h5_v1
+make analyze-run RUN_ID=paper_mmadv_h5_v1
 ```
 
 ---
@@ -217,8 +218,8 @@ make full-main-llm RUN_ID=paper_main_full_v1
 make full-v2-ablations RUN_ID=paper_ablations_full_v1
 make full-vpi-llm RUN_ID=paper_vpi_full_v1
 make full-mm-robust-ablations RUN_ID=paper_mmrobust_full_v1
-make full-mm-clean RUN_ID=paper_mmclean_full_v5
-make full-mm-adversarial RUN_ID=paper_mmadv_full_v4
+make full-mm-clean RUN_ID=paper_mmclean_h5_v1
+make full-mm-adversarial RUN_ID=paper_mmadv_h5_v1
 ```
 
 Then analyze:
@@ -228,8 +229,8 @@ make analyze-run RUN_ID=paper_main_full_v1
 make analyze-run RUN_ID=paper_ablations_full_v1
 make analyze-run RUN_ID=paper_vpi_full_v1
 make analyze-run RUN_ID=paper_mmrobust_full_v1
-make analyze-run RUN_ID=paper_mmclean_full_v5
-make analyze-run RUN_ID=paper_mmadv_full_v4
+make analyze-run RUN_ID=paper_mmclean_h5_v1
+make analyze-run RUN_ID=paper_mmadv_h5_v1
 ```
 
 ---
@@ -243,8 +244,8 @@ Main paper evidence:
 - `paper_mmrobust_full_v1`
 
 Appendix / external stress test:
-- `paper_mmclean_full_v5`
-- `paper_mmadv_full_v4`
+- `paper_mmclean_h5_v1`
+- `paper_mmadv_h5_v1`
 
 ## 10. Latest Result Mapping
 
@@ -260,10 +261,10 @@ Use this provenance mapping when citing results in the draft:
 | `sagemem_v2_ablations.json` | `paper_ablations_full_v1` |
 | `sagemem_vpi_llm.json` | `paper_vpi_full_v1` |
 | `sagemem_multimodal_robustness_ablations.json` | `paper_mmrobust_full_v1` |
-| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_full_v5` |
-| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_full_v4` |
+| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_h5_v1` |
+| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_h5_v1` |
 
-The corrected MM-BrowseComp pair is `paper_mmclean_full_v5` / `paper_mmadv_full_v4`.
+The corrected H5 MM-BrowseComp pair is `paper_mmclean_h5_v1` / `paper_mmadv_h5_v1`.
 
 ## 11. Audit Commands
 

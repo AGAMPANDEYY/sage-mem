@@ -117,6 +117,149 @@ _VISUAL_DIRECTIVE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+_BROWSER_TOOL_SOURCE = "browser_tool_output_text"
+_BROWSER_CORRECTION_RE = re.compile(
+    r"\b("
+    r"correction confirmed|confirmed correction|source correction|errata|superseded|supersedes|"
+    r"previously stored|previously reported|previous value|previous answer|earlier draft|"
+    r"has since been (updated|corrected|superseded)|"
+    r"the (actual|correct|updated|latest|current) answer (is|should be)|"
+    r"replace (the )?(earlier|prior|previous) (answer|value|entry|memory)|"
+    r"disregard (the )?(earlier|prior|previous)|ignore (the )?(earlier|prior|previous)"
+    r")\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _apply_browser_context_trust_prior(
+    *,
+    text: str,
+    source_type: str,
+    trust: float,
+    cfg=None,
+) -> float:
+    """
+    Source-context-sensitive prior for web/browsing observations.
+
+    Generic tool outputs may be trusted internal API responses. Browser-derived
+    text is different: page content can be adversarially edited and often
+    includes correction-like language that attempts to overwrite prior evidence.
+    This gate is provenance-based and deterministic; it does not depend on a
+    specific benchmark case ID or attack marker.
+    """
+    if source_type != _BROWSER_TOOL_SOURCE or cfg is None:
+        return _clip01(trust)
+    capped = min(float(trust), float(cfg.thresholds.browser_tool_trust_cap))
+    if _BROWSER_CORRECTION_RE.search(text):
+        capped = min(capped, float(cfg.thresholds.browser_correction_trust_cap))
+    return _clip01(capped)
+
+def _abr_suspicion_score(
+    *,
+    text: str,
+    embedding,
+    channel_id: str,
+    fact_key: Optional[str],
+    fact_value: Optional[str],
+    existing_items: List["MemoryItem"],
+    cfg,
+) -> float:
+    """
+    Adversarial Belief Revision (ABR) suspicion scorer for browser observations.
+
+    Returns a score in [0, 1]. Scores above cfg.thresholds.abr_suspicion_threshold
+    trigger a trust cap, blocking the write from influencing established memory.
+
+    Four orthogonal signals (composite trust scoring, Zhu et al. 2026):
+
+      S1 – Structured fact-key collision (w=0.40)
+           Incoming fact_key/fact_value directly conflicts with a protected fact
+           already in memory. Deterministic; strongest single signal.
+           Ref: provenance-ledger fact attestation (Perez & Ribeiro 2022).
+
+      S2 – Semantic proximity to trusted memory (w=0.30)
+           Max cosine similarity to high-trust items (trust ≥ 0.65).
+           Measures: "is this obs discussing an established topic without
+           independent corroboration?" Combined with S3, flags adversarial
+           singletons that probe established facts.
+           Ref: RA-RAG credibility-weighted retrieval (Shi et al. 2024).
+
+      S3 – Corroboration deficit (w=0.20)
+           Fraction of existing items NOT semantically similar to this obs.
+           Real facts accumulate independent corroborating evidence over time;
+           adversarial correction turns are near-always singletons.
+           Ref: CrAM credibility-aware attention (Weller et al. 2024).
+
+      S4 – Channel singleton penalty (w=0.10)
+           Legitimate browser sessions have multiple prior writes on the same
+           channel. Fresh single-use channels are a strong attacker prior.
+
+    Moving target: threshold is jittered at SAGEMemory init time by ±abr_noise_scale,
+    making exact threshold gaming harder for adaptive adversaries
+    (cf. CLATTER 2025, §4.3: randomised defence parameters).
+    """
+    if cfg is None:
+        return 0.0
+
+    topic_sim_thr = float(getattr(cfg.thresholds, "abr_topic_sim_threshold", 0.50))
+    corr_needed = max(1, int(getattr(cfg.thresholds, "abr_corroboration_needed", 3)))
+
+    # ── S1: Structured fact-key collision ───────────────────────────────────
+    s1 = 0.0
+    if fact_key and fact_value:
+        fv_incoming = str(fact_value).lower().strip()
+        for it in existing_items:
+            if (
+                getattr(it, "source_type", "") == "protected_fact"
+                and getattr(it, "fact_key", None) == fact_key
+                and getattr(it, "fact_value", None) is not None
+            ):
+                fv_stored = str(it.fact_value).lower().strip()
+                if fv_stored and fv_incoming and fv_stored != fv_incoming:
+                    stored_tokens = set(fv_stored.split())
+                    incoming_tokens = set(fv_incoming.split())
+                    union = stored_tokens | incoming_tokens
+                    jaccard = len(stored_tokens & incoming_tokens) / len(union) if union else 0.0
+                    if jaccard < 0.30:
+                        s1 = 1.0
+                        break
+
+    # ── S2: Semantic proximity to high-trust memory ──────────────────────────
+    s2 = 0.0
+    if embedding is not None and len(embedding) > 0:
+        max_sim = 0.0
+        for it in existing_items:
+            if float(getattr(it, "trust", 0.0)) >= 0.65 and it.embedding is not None:
+                sim = safe_cosine_sim(embedding, it.embedding)
+                if sim > max_sim:
+                    max_sim = sim
+        # Normalise: sims in [topic_sim_thr, 1.0] → [0, 1]
+        if max_sim > topic_sim_thr:
+            s2 = min(1.0, (max_sim - topic_sim_thr) / max(1e-6, 1.0 - topic_sim_thr))
+
+    # ── S3: Corroboration deficit ────────────────────────────────────────────
+    s3 = 1.0
+    if embedding is not None and len(embedding) > 0:
+        corr_count = sum(
+            1 for it in existing_items
+            if it.embedding is not None and safe_cosine_sim(embedding, it.embedding) > 0.55
+        )
+        s3 = 1.0 - min(1.0, corr_count / corr_needed)
+
+    # ── S4: Channel singleton penalty ────────────────────────────────────────
+    depth = sum(1 for it in existing_items if getattr(it, "channel_id", "") == channel_id)
+    if depth == 0:
+        s4 = 1.0
+    elif depth == 1:
+        s4 = 0.6
+    elif depth == 2:
+        s4 = 0.3
+    else:
+        s4 = 0.0
+
+    return _clip01(0.40 * s1 + 0.30 * s2 + 0.20 * s3 + 0.10 * s4)
+
+
 # Legitimate visual content indicators (genuine OCR/VLM output looks like this)
 _VISUAL_CONTENT_RE = re.compile(
     r"\b("
@@ -201,6 +344,7 @@ _DEFAULT_SOURCE_CRED = {
     "ocr_text": 0.60,
     "vision_caption": 0.58,
     "tool_output_text": 0.70,
+    _BROWSER_TOOL_SOURCE: 0.35,
     "self_summary": 0.45,
     "attacker": 0.10,
     "tool_echo": 0.20,
@@ -949,6 +1093,12 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         if source_type != "user":
             rep = self._get_channel_rep(channel_id)
             computed_trust = _clip01(computed_trust * rep)
+        computed_trust = _apply_browser_context_trust_prior(
+            text=text,
+            source_type=source_type,
+            trust=computed_trust,
+            cfg=self._cfg,
+        )
         # ─────────────────────────────────────────────────────────────────────
 
         if partition == "planning" and source_type != "user":
@@ -1503,6 +1653,7 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         anomaly_detector=None,  # Optional[SessionAnomalyDetector]
         consistency_graph=None,   # Optional[MultiTurnConsistencyGraph]
         correction_scorer=None,   # Optional[CorrectionPlausibilityScorer]
+        enable_abr: bool = False, # Adversarial Belief Revision semantic gate
     ):
         super().__init__(
             embedder=embedder,
@@ -1522,6 +1673,12 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         self.chain_decay = float(chain_decay)
         self._consistency_graph = consistency_graph
         self._correction_scorer = correction_scorer
+        self._enable_abr = bool(enable_abr)
+        # Moving-target jitter: small per-instance noise on ABR threshold
+        # makes exact threshold gaming harder for adaptive adversaries.
+        import random as _rand
+        _noise = float(getattr(getattr(cfg, "thresholds", object()), "abr_noise_scale", 0.05)) if cfg is not None else 0.05
+        self._abr_jitter: float = _rand.uniform(-_noise, _noise)
 
     def _all_items_by_id(self) -> Dict[int, MemoryItem]:
         return {
@@ -1812,6 +1969,12 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             trust = min(trust, self_summary_cap)
         if source_type == "tool_echo":
             trust = min(trust, tool_echo_cap)
+        trust = _apply_browser_context_trust_prior(
+            text="",
+            source_type=source_type,
+            trust=trust,
+            cfg=self._cfg,
+        )
         return _clip01(trust)
 
     def write(self, **kwargs):  # type: ignore[override]
@@ -1873,6 +2036,32 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             proposed_trust=base_trust,
             parent_ids=parent_ids,
         )
+        kwargs["trust"] = _apply_browser_context_trust_prior(
+            text=text,
+            source_type=source_type,
+            trust=float(kwargs["trust"]),
+            cfg=self._cfg,
+        )
+        # ── Adversarial Belief Revision gate (ABR) ──────────────────────────
+        # Vocabulary-agnostic composite suspicion scorer: catches adaptive
+        # adversaries that paraphrase around the correction-language regex.
+        # Only active when enable_abr=True (SAGEMemV2_ABR condition).
+        if self._enable_abr and source_type == _BROWSER_TOOL_SOURCE and self._cfg is not None:
+            abr_threshold = float(self._cfg.thresholds.abr_suspicion_threshold)
+            abr_cap = float(self._cfg.thresholds.abr_trust_cap)
+            effective_thr = _clip01(abr_threshold + self._abr_jitter)
+            emb = self.embedder.embed(text)
+            suspicion = _abr_suspicion_score(
+                text=text,
+                embedding=emb,
+                channel_id=channel_id,
+                fact_key=kwargs.get("fact_key"),
+                fact_value=str(kwargs.get("fact_value", "") or ""),
+                existing_items=self.items,
+                cfg=self._cfg,
+            )
+            if suspicion > effective_thr:
+                kwargs["trust"] = min(float(kwargs["trust"]), abr_cap)
         kwargs["actionable"] = False
         target_partition = self._typed_partition_for_item(
             source_type=source_type,

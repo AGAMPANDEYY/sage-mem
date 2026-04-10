@@ -39,6 +39,8 @@ except ImportError:
 
 from mma_bench_suite import (
     ALL_ATTACK_SUITE,
+    ABR_CONDITION,
+    BROWSING_TRUST_PRIOR_CONDITION,
     MAIN_ATTACK_SUITE,
     MM_BROWSECOMP_ATTACK_SUITE,
     MMA_BENCH_CONDITIONS,
@@ -128,6 +130,10 @@ def parse_args():
                    help="Include SAGEMemV2 condition (Bayesian trust + consistency graph + anomaly detection)")
     p.add_argument("--include-v2-ablations", action="store_true",
                    help="Include SAGEMemV2 component ablations (NoBayes / NoAnomaly / NoConsistency)")
+    p.add_argument("--include-browsing-prior", action="store_true",
+                   help="Include SAGEMemV2 browsing-context trust prior condition (H5, keyword-based) for web/tool observations")
+    p.add_argument("--include-abr", action="store_true",
+                   help="Include SAGEMemV2_ABR condition (H6): vocabulary-agnostic composite suspicion scorer for browser observations")
     p.add_argument("--resume", action="store_true",
                    help="Resume from an existing --out JSON by skipping completed (benchmark, seed, condition, split, case) units")
     p.add_argument("--checkpoint-every", type=int, default=25,
@@ -154,6 +160,8 @@ def print_results_table(summary: dict, *, title: str) -> None:
         "ConstructorGuardedStateUpdateSandbox_NonProceduralConsolidation": "H1 ConstructorGuard",
         "SAGEMem_SourceAttestedGuardedEpisodicMemory":                  "SAGE-Mem v1",
         "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect":       "SAGE-Mem v2",
+        "SAGEMemV2_BrowsingTrustPrior":                                 "v2 H5 BrowsePrior",
+        "SAGEMemV2_ABR":                                                "v2 H6 ABR",
         "SAGEMemV2_NoBayes":                                            "v2 NoBayes",
         "SAGEMemV2_NoAnomaly":                                          "v2 NoAnom",
         "SAGEMemV2_NoConsistency":                                      "v2 NoCons",
@@ -580,6 +588,7 @@ def main():
             "Mem0_Platform_Baseline",
             "SAGEMem_SourceAttestedGuardedEpisodicMemory",
             "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect",
+            BROWSING_TRUST_PRIOR_CONDITION,
         }
     ]
     if args.sage_v2 and "SAGEMemV2_BayesianTrust_ConsistencyGraph_AnomalyDetect" not in conditions:
@@ -592,6 +601,10 @@ def main():
         ]:
             if cond not in conditions:
                 conditions.append(cond)
+    if args.include_browsing_prior and BROWSING_TRUST_PRIOR_CONDITION not in conditions:
+        conditions.append(BROWSING_TRUST_PRIOR_CONDITION)
+    if args.include_abr and ABR_CONDITION not in conditions:
+        conditions.append(ABR_CONDITION)
 
     locomo_splits = ["clean", "poisoned"]
     if not args.disable_cross_topic:

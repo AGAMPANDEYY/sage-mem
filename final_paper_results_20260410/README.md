@@ -3,10 +3,10 @@
 This folder is the local paper artifact set copied from the authoritative EC2 runs.
 
 These are the true latest runs currently copied into the repo. In particular:
-- clean MM-BrowseComp = `paper_mmclean_full_v5`
-- adversarial MM-BrowseComp = `paper_mmadv_full_v4`
+- clean MM-BrowseComp = `paper_mmclean_h5_v1`
+- adversarial MM-BrowseComp = `paper_mmadv_h5_v1`
 
-The corrected MM-BrowseComp pair is `paper_mmclean_full_v5` / `paper_mmadv_full_v4`.
+The corrected MM-BrowseComp pair is `paper_mmclean_h5_v1` / `paper_mmadv_h5_v1`.
 
 Important audit note:
 - The MM-BrowseComp artifacts below are the corrected reruns on the 194-case
@@ -31,11 +31,11 @@ Important audit note:
 ## Appendix / external stress-test runs
 
 - `sagemem_mm_browsecomp_clean.json`
-  - `paper_mmclean_full_v5`
-  - MM-BrowseComp clean, VLM-backed
+  - `paper_mmclean_h5_v1`
+  - MM-BrowseComp clean, VLM-backed, includes `SAGEMemV2_BrowsingTrustPrior`
 - `sagemem_mm_browsecomp_adversarial.json`
-  - `paper_mmadv_full_v4`
-  - MM-BrowseComp adversarial, VLM-backed
+  - `paper_mmadv_h5_v1`
+  - MM-BrowseComp adversarial, VLM-backed, includes `SAGEMemV2_BrowsingTrustPrior`
 
 ## Interpretation
 
@@ -44,4 +44,4 @@ Use the LoCoMo full runs as the primary evidence for the paper.
 Use MM-BrowseComp as:
 - external validation,
 - a browsing-style multimodal stress test,
-- and evidence of a current limitation in browsing-derived `tool_output_text` trust.
+- and evidence that browsing-derived external text needs source-context-sensitive write priors.
