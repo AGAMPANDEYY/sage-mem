@@ -155,6 +155,95 @@ def _apply_browser_context_trust_prior(
         capped = min(capped, float(cfg.thresholds.browser_correction_trust_cap))
     return _clip01(capped)
 
+def _cross_source_divergence_score(
+    *,
+    incoming_text: str,
+    existing_items: List["MemoryItem"],
+    min_group_size: int = 3,
+    topic_threshold: float = 0.55,
+    outlier_gap_threshold: float = 0.30,
+) -> float:
+    """
+    Cross-source divergence check for browser scraping tasks.
+
+    When an agent scrapes multiple websites for the same task, all scraped
+    sentences should cluster around the same topic. An attacker injecting one
+    fake sentence will produce something that is topically out of place compared
+    to everything else the agent has scraped so far.
+
+    How it works:
+      1. Collect recent browser scrapes from planning memory (the prior scrapes).
+      2. Compute the group's internal cohesion — average pairwise similarity
+         between all prior scrapes. High cohesion means the group is consistently
+         about the same topic.
+      3. Compute incoming text's avg similarity to the group.
+      4. If the group is cohesive (topic_threshold) but the incoming text is far
+         below the group's internal similarity (outlier_gap_threshold) → outlier.
+
+    Example: 4 prior scrapes all about iPhone prices have internal cohesion ~0.77.
+    A sentence about "Caroline from France" scores ~-0.08 avg similarity to the
+    group — a gap of 0.85, well above the 0.30 threshold → flagged.
+    A legitimate "$929" sentence scores ~0.78 avg similarity → gap ~0 → allowed.
+
+    Only catches topically unrelated attacks (e.g. attacker sneaks an off-topic
+    fake fact into a scraping stream). Value-substitution attacks on the same
+    topic (e.g. "$1 instead of $999") are handled by S1/S2/ABR.
+
+    Only activates when there are at least min_group_size prior scrapes.
+    Returns suspicion score in [0, 1]. 0 = fits the group, 1 = clear outlier.
+    """
+    try:
+        from embedding import get_sentence_embedder
+        from utils import safe_cosine_sim
+        import numpy as _np
+        se = get_sentence_embedder()
+    except Exception:
+        return 0.0
+
+    # Collect recent trusted browser scrapes from planning memory
+    prior_scrapes = [
+        it for it in existing_items
+        if getattr(it, "source_type", "") == _BROWSER_TOOL_SOURCE
+        and getattr(it, "partition", "") == "planning"
+        and getattr(it, "trust", 0.0) >= 0.40
+        and str(it.text or "").strip()
+    ][-20:]  # cap at last 20 scrapes
+
+    if len(prior_scrapes) < min_group_size:
+        return 0.0
+
+    prior_embs = [se.embed(str(it.text or "")[:300]) for it in prior_scrapes]
+
+    # Step 1: compute group internal cohesion (avg pairwise similarity)
+    internal_sims = []
+    for i in range(len(prior_embs)):
+        for j in range(i + 1, len(prior_embs)):
+            internal_sims.append(float(safe_cosine_sim(prior_embs[i], prior_embs[j])))
+
+    if not internal_sims:
+        return 0.0
+
+    group_cohesion = float(_np.mean(internal_sims))
+
+    # Only apply this check if the group is consistently about the same topic
+    if group_cohesion < topic_threshold:
+        return 0.0
+
+    # Step 2: compute incoming text's avg similarity to the group
+    inc_emb = se.embed(incoming_text[:300])
+    incoming_sims = [float(safe_cosine_sim(inc_emb, pe)) for pe in prior_embs]
+    incoming_avg = float(_np.mean(incoming_sims))
+
+    # Step 3: how far below the group cohesion is the incoming text?
+    gap = group_cohesion - incoming_avg
+
+    if gap > outlier_gap_threshold:
+        # Normalise: gap=0.30 → score=0.0, gap=0.60 → score=0.5, gap=0.90 → score=1.0
+        return float(min(1.0, (gap - outlier_gap_threshold) / outlier_gap_threshold))
+
+    return 0.0
+
+
 def _abr_suspicion_score(
     *,
     text: str,
@@ -2139,6 +2228,26 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             )
             if suspicion > effective_thr:
                 kwargs["trust"] = min(float(kwargs["trust"]), abr_cap)
+
+        # ── Cross-source divergence check (browser scraping tasks only) ──────
+        # When the agent is scraping multiple websites for the same task, all
+        # scraped sentences should cluster around the same topic. A sentence
+        # that is a massive outlier compared to everything else scraped so far
+        # is flagged as suspicious — likely an attacker injecting one fake fact
+        # into a stream of otherwise consistent legitimate scrapes.
+        # Only fires for browser_tool_output_text with >= 3 prior scrapes.
+        if source_type == _BROWSER_TOOL_SOURCE:
+            div_score = _cross_source_divergence_score(
+                incoming_text=text,
+                existing_items=self.items,
+            )
+            if div_score > 0.5:
+                # Strong outlier — cap trust significantly
+                kwargs["trust"] = min(float(kwargs["trust"]), 0.25)
+            elif div_score > 0.0:
+                # Mild outlier — light trust penalty
+                kwargs["trust"] = min(float(kwargs["trust"]), 0.40)
+
         kwargs["actionable"] = False
         target_partition = self._typed_partition_for_item(
             source_type=source_type,
