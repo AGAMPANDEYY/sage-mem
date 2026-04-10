@@ -2,11 +2,19 @@
 
 This folder is the local paper artifact set copied from the authoritative EC2 runs.
 
-These are the true latest runs for each experiment family. In particular:
+These are the true latest runs currently copied into the repo. In particular:
 - clean MM-BrowseComp = `paper_mmclean_full_v4`
 - adversarial MM-BrowseComp = `paper_mmadv_full_v3`
 
 There is intentionally no `paper_mmadv_full_v4`.
+
+Important audit note:
+- The four LoCoMo-family artifacts below remain the current main-paper artifacts.
+- After a later MM-BrowseComp data audit, the filtered MM-BrowseComp case pool was
+  corrected from 247 to 194 cases by enforcing `--min-good-obs` correctly and
+  dropping answer/checklist leakage. Therefore the two MM-BrowseComp artifacts
+  in this folder are superseded for final citation until clean/adversarial
+  MM-BrowseComp is rerun on the corrected 194-case pool.
 
 ## Main-table runs
 
@@ -36,7 +44,7 @@ There is intentionally no `paper_mmadv_full_v4`.
 
 Use the LoCoMo full runs as the primary evidence for the paper.
 
-Use MM-BrowseComp as:
+Use the current MM-BrowseComp files only as historical stress-test diagnostics until rerun on the corrected dataset:
 - external validation,
 - a browsing-style multimodal stress test,
 - and evidence of a current limitation in browsing-derived `tool_output_text` trust.

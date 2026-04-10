@@ -161,9 +161,9 @@ MM-BrowseComp is now technically correct with VLM-backed image observations, but
 
 ## Authoritative Result Provenance
 
-The local paper artifact set is:
+The tracked local paper artifact set is:
 
-- [results/final_paper_results_20260410](/Users/agampandey/work/mem-shield/results/final_paper_results_20260410)
+- [final_paper_results_20260410](/Users/agampandey/work/mem-shield/final_paper_results_20260410)
 
 Use the following mapping as the authoritative latest result for each experiment family:
 
@@ -177,6 +177,8 @@ Use the following mapping as the authoritative latest result for each experiment
 | `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_full_v3` | latest adversarial MM-BrowseComp rerun after the VLM-caption fix |
 
 There is intentionally no `paper_mmadv_full_v4`. The clean and adversarial MM-BrowseComp runs have different version numbers because the clean track required one extra rerun before the final VLM-backed pair was frozen.
+
+Audit caveat: a later MM-BrowseComp data audit fixed the filtered case-construction gate and removed answer/checklist leakage, reducing the publication case pool from 247 to 194 cases. The four LoCoMo-family artifacts remain current main-paper evidence; the MM-BrowseComp clean/adversarial artifacts should be rerun before final citation against the corrected dataset.
 
 ---
 

@@ -248,9 +248,9 @@ Appendix / external stress test:
 
 ## 10. Latest Result Mapping
 
-The local final artifact folder is:
+The tracked local final artifact folder is:
 
-- [results/final_paper_results_20260410](/Users/agampandey/work/mem-shield/results/final_paper_results_20260410)
+- [final_paper_results_20260410](/Users/agampandey/work/mem-shield/final_paper_results_20260410)
 
 Use this provenance mapping when citing results in the draft:
 
@@ -264,3 +264,30 @@ Use this provenance mapping when citing results in the draft:
 | `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_full_v3` |
 
 There is intentionally no `paper_mmadv_full_v4`.
+
+Audit caveat: the filtered MM-BrowseComp case pool was corrected after these
+VLM-backed runs, from 247 to 194 leakage-clean cases. Rerun the clean and
+adversarial MM-BrowseComp commands before using MM-BrowseComp as a final cited
+result. The LoCoMo-family runs remain the current main-paper evidence.
+
+Recommended corrected MM-BrowseComp reruns:
+
+```bash
+make filter-mm-cases
+make full-mm-clean RUN_ID=paper_mmclean_full_v5
+make full-mm-adversarial RUN_ID=paper_mmadv_full_v4
+```
+
+## 11. Audit Commands
+
+Validate the current filtered MM-BrowseComp dataset:
+
+```bash
+python3 scripts/audit_mm_browsecomp_dataset.py
+```
+
+Validate frozen result provenance against the current dataset:
+
+```bash
+python3 scripts/audit_final_results.py
+```

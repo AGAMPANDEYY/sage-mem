@@ -383,43 +383,16 @@ This weakens any claim that the paper empirically isolates each submodule on the
 
 ### 5.5 MM-BrowseComp: Clean vs Adversarial
 
-After fixing the earlier VLM-captioning bug, the MM-BrowseComp clean and adversarial reruns are now technically correct:
+After fixing the earlier VLM-captioning bug, we ran clean/adversarial MM-BrowseComp on a 247-case filtered pool (`paper_mmclean_full_v4`, `paper_mmadv_full_v3`). A subsequent data audit found that the case-construction script did not enforce `--min-good-obs` as documented and did not drop four answer/checklist leakage cases. We fixed the pipeline and regenerated a leakage-clean 194-case pool.
 
-- clean run `paper_mmclean_full_v4` uses `vision_caption_mode=openai` and took `433s`,
-- adversarial run `paper_mmadv_full_v3` uses the same image-caption path and took `431s`,
-- both use `247` filtered cases.
-
-#### Clean MM-BrowseComp
-
-| Method | BCU clean | Answered rate |
-|---|---:|---:|
-| ShortContext | 0.3158 | 1.0000 |
-| MMA | 0.3158 | 1.0000 |
-| RSum | 0.2955 | 1.0000 |
-| H1 | 0.2955 | 1.0000 |
-| H2 | 0.2955 | 1.0000 |
-| H3 | 0.3117 | 1.0000 |
-| **SAGE-Mem** | **0.2834** | **0.9919** |
-
-#### Adversarial MM-BrowseComp
-
-| Method | BCU poison | Write ASR | Belief ASR | Retrieval | False belief | ASR |
-|---|---:|---:|---:|---:|---:|---:|
-| ShortContext | 0.0000 | 1.0000 | 0.0000 | 1.0000 | 0.0000 | 1.0000 |
-| MMA | 0.0000 | 1.0000 | 0.0000 | 1.0000 | 0.0000 | 1.0000 |
-| RSum | 0.0000 | 1.0000 | 0.3603 | 0.9960 | 0.0000 | 0.9960 |
-| H1 | 0.0000 | 1.0000 | 0.3603 | 0.9960 | 0.0000 | 0.9960 |
-| H2 | 0.0000 | 1.0000 | 0.3603 | 1.0000 | 0.0000 | 1.0000 |
-| H3 | 0.0000 | 1.0000 | 0.3603 | 1.0000 | 0.0000 | 1.0000 |
-| **SAGE-Mem** | **0.0000** | **1.0000** | **0.0000** | **0.9595** | **0.1309** | **0.9595** |
+Therefore, the 247-case MM-BrowseComp numbers are retained only as historical diagnostics and are **not used as final cited results**. The corrected MM-BrowseComp clean/adversarial pair must be rerun before this section is converted into a final table.
 
 **What this shows.**
 
-1. The clean benchmark is now usable.
-2. The adversarial benchmark remains highly saturated.
-3. Under browsing-style `fact_overwrite_injection`, **every method admits the attack at write time**.
-4. SAGE-Mem modestly reduces downstream retrieval contamination relative to MMA (`0.9595` vs `1.0000`), but does not prevent end-to-end collapse.
-5. The current browsing-specific limitation is therefore a **write-time trust calibration failure**, not only a retrieval failure.
+1. The VLM-backed MM-BrowseComp path is technically viable.
+2. The benchmark is sensitive to trace-quality and leakage filtering.
+3. Browsing-style `fact_overwrite_injection` remains the likely failure boundary for the current write gate.
+4. The corrected 194-case pool should be treated as the only valid pool for the next MM-BrowseComp rerun.
 
 **Paper implication.** MM-BrowseComp is useful as an external stress test and as evidence of a real limitation in the current trust policy for browsing-derived `tool_output_text`, but it is **not strong enough to anchor the main empirical claim**.
 

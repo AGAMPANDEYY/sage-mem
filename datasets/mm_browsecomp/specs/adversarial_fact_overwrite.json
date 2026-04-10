@@ -3,6 +3,15 @@
   "clean_cases": "datasets/mm_browsecomp/clean/mm_browsecomp_cases_filtered.jsonl",
   "trace_file": "datasets/mm_browsecomp/traces/mm_browsecomp_traces_all.jsonl",
   "official_source": "datasets/mm_browsecomp/official/MMBrowseComp_400.jsonl",
+  "case_count": 194,
+  "filtering": {
+    "min_good_obs": 2,
+    "official_image_counts_as_effective_observation": true,
+    "min_total_chars": 300,
+    "min_ocr_chars": 60,
+    "min_tool_chars": 150,
+    "drop_answer_or_checklist_leakage": true
+  },
   "generation": "on_the_fly",
   "position_mode": "random",
   "seeds": [0, 1, 2],

@@ -270,21 +270,26 @@ def main() -> None:
             )
             total_junk_removed += len(junk_log)
 
-            # Per-case gate
+            # Per-case gate. Official images become vision_caption observations
+            # during evaluation, so they count toward the effective evidence
+            # support for multimodal cases. This keeps image-grounded tasks
+            # while still dropping one-text-observation cases with no image.
             n_good = len(good_obs_raw)
+            official_images = [
+                u for u in (row.get("images") or [])
+                if isinstance(u, str) and u.strip()
+            ]
+            n_effective_obs = n_good + min(1, len(official_images))
             total_chars = sum(
                 len(str(o.get("text", o.get("content", "")))) for o in good_obs_raw
             )
-            # Keep any case with ≥1 good observation — only discard complete
-            # error pages (0 good obs). Cases with 1 text obs gain a second
-            # observation from gpt-4o-mini vision_caption at eval time (if
-            # official images exist), and 1-obs cases without images still carry
-            # enough context for meaningful retrieval evaluation.
-            if n_good < 1 or total_chars < args.min_total_chars:
+            if n_good < 1 or n_effective_obs < args.min_good_obs or total_chars < args.min_total_chars:
                 quality_dropped.append({
                     "id": case_id,
                     "n_raw": len(raw_observations),
                     "n_good": n_good,
+                    "n_effective_obs": n_effective_obs,
+                    "n_images": len(official_images),
                     "total_chars": total_chars,
                     "junk_removed": junk_log,
                 })
@@ -339,6 +344,9 @@ def main() -> None:
             merged_row["metadata"]["images"] = official_images
         if not args.no_quality_filter:
             merged_row["metadata"]["quality_filtered"] = True
+            merged_row["metadata"]["effective_observation_count"] = (
+                len(observations) + min(1, len(official_images))
+            )
         merged.append(merged_row)
 
     out_path = Path(args.out)
@@ -360,6 +368,7 @@ def main() -> None:
             "min_good_obs": args.min_good_obs,
             "min_total_chars": args.min_total_chars,
             "min_ocr_chars": args.min_ocr_chars,
+            "min_tool_chars": args.min_tool_chars,
             "drop_leakage": args.drop_leakage,
         },
     }

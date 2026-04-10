@@ -103,7 +103,8 @@ filter-mm-cases:
 	  --official $(MM_OFFICIAL) \
 	  --traces $(MM_TRACES) \
 	  --out $(MM_FILTERED) \
-	  --min-good-obs 2 --min-total-chars 300 --min-ocr-chars 60 --min-tool-chars 150
+	  --min-good-obs 2 --min-total-chars 300 --min-ocr-chars 60 --min-tool-chars 150 \
+	  --drop-leakage
 
 smoke-main:
 	mkdir -p $(RUN_DIR)

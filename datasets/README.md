@@ -33,7 +33,12 @@ Important:
 - `traces/mm_browsecomp_traces_all.jsonl`
   - fetched observation traces
 - `clean/mm_browsecomp_cases_filtered.jsonl`
-  - filtered clean cases used for MM-BrowseComp runs
+  - quality-filtered clean cases used for MM-BrowseComp runs
+  - current regenerated pool: 194 cases
+  - filters: junk/blocked-page removal, duplicate removal, `min-good-obs=2`
+    with one official image counted as one future VLM observation,
+    `min-total-chars=300`, `min-ocr-chars=60`, `min-tool-chars=150`,
+    and answer/checklist leakage dropping
 - `specs/adversarial_fact_overwrite.json`
   - manifest for the current adversarial MM-BrowseComp benchmark
 
