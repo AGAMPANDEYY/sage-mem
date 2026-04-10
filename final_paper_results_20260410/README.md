@@ -3,18 +3,15 @@
 This folder is the local paper artifact set copied from the authoritative EC2 runs.
 
 These are the true latest runs currently copied into the repo. In particular:
-- clean MM-BrowseComp = `paper_mmclean_full_v4`
-- adversarial MM-BrowseComp = `paper_mmadv_full_v3`
+- clean MM-BrowseComp = `paper_mmclean_full_v5`
+- adversarial MM-BrowseComp = `paper_mmadv_full_v4`
 
-There is intentionally no `paper_mmadv_full_v4`.
+The corrected MM-BrowseComp pair is `paper_mmclean_full_v5` / `paper_mmadv_full_v4`.
 
 Important audit note:
-- The four LoCoMo-family artifacts below remain the current main-paper artifacts.
-- After a later MM-BrowseComp data audit, the filtered MM-BrowseComp case pool was
-  corrected from 247 to 194 cases by enforcing `--min-good-obs` correctly and
-  dropping answer/checklist leakage. Therefore the two MM-BrowseComp artifacts
-  in this folder are superseded for final citation until clean/adversarial
-  MM-BrowseComp is rerun on the corrected 194-case pool.
+- The MM-BrowseComp artifacts below are the corrected reruns on the 194-case
+  leakage-clean pool after enforcing `--min-good-obs` and dropping
+  answer/checklist leakage.
 
 ## Main-table runs
 
@@ -34,17 +31,17 @@ Important audit note:
 ## Appendix / external stress-test runs
 
 - `sagemem_mm_browsecomp_clean.json`
-  - `paper_mmclean_full_v4`
+  - `paper_mmclean_full_v5`
   - MM-BrowseComp clean, VLM-backed
 - `sagemem_mm_browsecomp_adversarial.json`
-  - `paper_mmadv_full_v3`
+  - `paper_mmadv_full_v4`
   - MM-BrowseComp adversarial, VLM-backed
 
 ## Interpretation
 
 Use the LoCoMo full runs as the primary evidence for the paper.
 
-Use the current MM-BrowseComp files only as historical stress-test diagnostics until rerun on the corrected dataset:
+Use MM-BrowseComp as:
 - external validation,
 - a browsing-style multimodal stress test,
 - and evidence of a current limitation in browsing-derived `tool_output_text` trust.

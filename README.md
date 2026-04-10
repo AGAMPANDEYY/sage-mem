@@ -173,12 +173,12 @@ Use the following mapping as the authoritative latest result for each experiment
 | `sagemem_v2_ablations.json` | `paper_ablations_full_v1` | main LoCoMo ablations |
 | `sagemem_vpi_llm.json` | `paper_vpi_full_v1` | VPI-only run |
 | `sagemem_multimodal_robustness_ablations.json` | `paper_mmrobust_full_v1` | noisy/missing-modality robustness |
-| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_full_v4` | latest clean MM-BrowseComp rerun after the VLM-caption fix |
-| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_full_v3` | latest adversarial MM-BrowseComp rerun after the VLM-caption fix |
+| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_full_v5` | latest clean MM-BrowseComp rerun after the VLM-caption fix |
+| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_full_v4` | latest adversarial MM-BrowseComp rerun after the VLM-caption fix |
 
-There is intentionally no `paper_mmadv_full_v4`. The clean and adversarial MM-BrowseComp runs have different version numbers because the clean track required one extra rerun before the final VLM-backed pair was frozen.
+The corrected MM-BrowseComp pair is `paper_mmclean_full_v5` / `paper_mmadv_full_v4`, rerun on the leakage-clean 194-case pool after the VLM-caption and filtering fixes.
 
-Audit caveat: a later MM-BrowseComp data audit fixed the filtered case-construction gate and removed answer/checklist leakage, reducing the publication case pool from 247 to 194 cases. The four LoCoMo-family artifacts remain current main-paper evidence; the MM-BrowseComp clean/adversarial artifacts should be rerun before final citation against the corrected dataset.
+MM-BrowseComp was rerun after the case-construction audit on the corrected 194-case leakage-clean pool.
 
 ---
 
@@ -253,8 +253,8 @@ make filter-mm-cases
 Run clean and adversarial tracks separately:
 
 ```bash
-make full-mm-clean RUN_ID=paper_mmclean_full_v4
-make full-mm-adversarial RUN_ID=paper_mmadv_full_v3
+make full-mm-clean RUN_ID=paper_mmclean_full_v5
+make full-mm-adversarial RUN_ID=paper_mmadv_full_v4
 ```
 
 ### 4. Analysis
