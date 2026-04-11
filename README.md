@@ -152,12 +152,23 @@ Key pattern:
 
 ### MM-BrowseComp
 
-MM-BrowseComp is now technically correct with VLM-backed image observations. The generic-trust adversarial run remains saturated, but the H5 browsing-prior condition fixes the calibrated web-correction failure:
-- generic SAGE-Mem v2: `Write ASR=1.0000`, `Retrieval=0.9536`, `ASR=0.9536`, `BCU poison=0.0000`,
-- SAGE-Mem v2 + browsing prior: `Write ASR=0.0000`, `Retrieval=0.0000`, `ASR=0.0000`, `BCU poison=0.2784`,
-- clean BCU is `0.2732` for the browsing prior versus `0.2577` for generic SAGE-Mem v2 and `0.2938` for MMA.
+Use the grouped H5/H6 browsing pair as the canonical browsing result set:
+- `paper_mmclean_abr_group_v1`
+- `paper_mmadv_abr_group_v1`
 
-The current code includes an explicit H5 ablation, `SAGEMemV2_BrowsingTrustPrior`, which maps MM-BrowseComp browser/page observations to `browser_tool_output_text` only for that condition. This keeps trusted/internal `tool_output_text` unchanged and tests whether browser-derived external text needs a lower, correction-sensitive write prior.
+On the 194-case grouped benchmark:
+- generic SAGE-Mem v2: `BCU poison=0.1684`, `Write ASR=0.6314`, `Retrieval=0.5619`, `false_belief=0.0842`
+- H5 browsing prior: `BCU poison=0.0275`, `Write ASR=0.3144`, `Retrieval=0.8265`
+- H6 ABR: `BCU poison=0.1512`, `Write ASR=0.0000`, `Retrieval=0.0000`, `ASR=0.0000`
+- clean BCU: `0.2062` for MMA, `0.1598` for H5, `0.1598` for H6
+
+The important conclusion is not that browser trust priors alone solve MM-BrowseComp. The stronger result is that browser-specific claim typing matters: H5 reduces write admission but still allows heavy retrieval contamination, while H6 blocks browser-sourced answer-claim writes and preserves near-clean utility under attack.
+
+Additional secondary browsing ablation:
+- `paper_mmclean_abr_sem_v1`
+- `paper_mmadv_abr_sem_v1`
+
+These semantic observation-group reruns are useful for mechanism analysis, but they are **not** the canonical paper pair. They preserve the H6 top-line result and slightly strengthen page-group signal activity, but they do not change the main interpretation that the structured browser claim gate is the dominant mechanism.
 
 ---
 
@@ -175,10 +186,26 @@ Use the following mapping as the authoritative latest result for each experiment
 | `sagemem_v2_ablations.json` | `paper_ablations_full_v1` | main LoCoMo ablations |
 | `sagemem_vpi_llm.json` | `paper_vpi_full_v1` | VPI-only run |
 | `sagemem_multimodal_robustness_ablations.json` | `paper_mmrobust_full_v1` | noisy/missing-modality robustness |
-| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_h5_v1` | latest clean MM-BrowseComp rerun with H5 browsing prior |
-| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_h5_v1` | latest adversarial MM-BrowseComp rerun with H5 browsing prior |
+| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_h5_v1` | baseline clean MM-BrowseComp rerun with H5 browsing prior |
+| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_h5_v1` | baseline adversarial MM-BrowseComp rerun with H5 browsing prior |
+| `sagemem_mm_browsecomp_abr_clean.json` | `paper_mmclean_abr_group_v1` | canonical clean grouped browsing run with H5 and H6 |
+| `sagemem_mm_browsecomp_abr_adversarial.json` | `paper_mmadv_abr_group_v1` | canonical adversarial grouped browsing run with injection + adaptive attacks and H5/H6 |
+| `sagemem_mm_browsecomp_abr_clean_semantic.json` | `paper_mmclean_abr_sem_v1` | semantic observation-group clean rerun; secondary ablation |
+| `sagemem_mm_browsecomp_abr_adversarial_semantic.json` | `paper_mmadv_abr_sem_v1` | semantic observation-group adversarial rerun; secondary ablation |
 
-The corrected H5 MM-BrowseComp pair is `paper_mmclean_h5_v1` / `paper_mmadv_h5_v1`, rerun on the leakage-clean 194-case pool after the VLM-caption and filtering fixes.
+For the paper, the canonical browsing pair is `paper_mmclean_abr_group_v1` / `paper_mmadv_abr_group_v1`.
+
+Exact local file paths:
+- [sagemem_main_llm.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_main_llm.json)
+- [sagemem_v2_ablations.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_v2_ablations.json)
+- [sagemem_vpi_llm.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_vpi_llm.json)
+- [sagemem_multimodal_robustness_ablations.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_multimodal_robustness_ablations.json)
+- [sagemem_mm_browsecomp_clean.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_clean.json)
+- [sagemem_mm_browsecomp_adversarial.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_adversarial.json)
+- [sagemem_mm_browsecomp_abr_clean.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_clean.json)
+- [sagemem_mm_browsecomp_abr_adversarial.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_adversarial.json)
+- [sagemem_mm_browsecomp_abr_clean_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_clean_semantic.json)
+- [sagemem_mm_browsecomp_abr_adversarial_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_adversarial_semantic.json)
 
 MM-BrowseComp was rerun after the case-construction audit on the corrected 194-case leakage-clean pool.
 
@@ -194,6 +221,7 @@ data/
   MM-BrowseComp/
   mm_browsecomp_traces_all.jsonl
   mm_browsecomp_cases_filtered.jsonl
+  mm_browsecomp_cases_augmented_openai.jsonl
 
 datasets/
   publication-facing dataset bundle
@@ -252,11 +280,26 @@ make build-mm-traces
 make filter-mm-cases
 ```
 
+Frozen augmented browsing cases reused across clean/adversarial reruns:
+
+```text
+data/mm_browsecomp_cases_augmented_openai.jsonl
+```
+
 Run clean and adversarial tracks separately:
 
 ```bash
 make full-mm-clean RUN_ID=paper_mmclean_h5_v1
 make full-mm-adversarial RUN_ID=paper_mmadv_h5_v1
+make full-mm-abr-clean RUN_ID=paper_mmclean_abr_group_v1
+make full-mm-abr-adversarial RUN_ID=paper_mmadv_abr_group_v1
+```
+
+Secondary semantic observation-group reruns copied from EC2:
+
+```text
+paper_mmclean_abr_sem_v1
+paper_mmadv_abr_sem_v1
 ```
 
 ### 4. Analysis
@@ -276,14 +319,16 @@ MM-BrowseComp should currently be described carefully.
 What is true:
 - the clean and adversarial tracks are now separate,
 - image observations are captioned with OpenAI vision,
-- the benchmark is useful as an external stress test.
+- the frozen augmented-case file `data/mm_browsecomp_cases_augmented_openai.jsonl` is reused across reruns,
+- the grouped H5/H6 benchmark is the right browsing comparison for the paper,
+- H6 achieves complete blocking on the current browser overwrite benchmark.
 
 What remains limited:
-- the H5 result covers the calibrated `fact_overwrite_injection` track, not all web-agent attacks,
-- generic-trust SAGE-Mem still admits browsing correction text,
+- the dominant H6 mechanism is the structured browser claim gate, not page-group semantic conflict alone,
+- the benchmark covers browser-sourced answer overwrites, not all web-agent attack classes,
 - trace coverage and VLM-caption quality remain dataset constraints.
 
-So MM-BrowseComp is now a useful H5 result, but it should be framed narrowly as evidence for source-context-sensitive browser write priors.
+So MM-BrowseComp should be framed as evidence that browsing-derived external text needs browser-specific write governance, with H6 showing that structured claim typing is stronger than vocabulary-based priors.
 
 ---
 

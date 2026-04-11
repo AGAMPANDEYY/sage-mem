@@ -71,11 +71,17 @@ class MemoryItem:
     claimed_source: Optional[str] = None  # attacker-controlled label-gaming field
     session_idx: Optional[int] = None
     observation_group: Optional[str] = None
+    source_url: Optional[str] = None
+    page_id: Optional[str] = None
     fact_key: Optional[str] = None
     fact_value: Optional[str] = None
     multimodal_relation: Optional[str] = None
     attack_family: Optional[str] = None
     quality_score: float = 1.0
+    group_outlier_score: float = 0.0
+    memory_conflict_score: float = 0.0
+    group_divergence_fired: bool = False
+    structured_claim_gate_fired: bool = False
     # Cached at write time (SAGEMemory only): True if belief promotion was
     # satisfied when the item was written. Prevents re-running the check at
     # retrieval time after consolidation has discarded parent items.
@@ -242,6 +248,223 @@ def _cross_source_divergence_score(
         return float(min(1.0, (gap - outlier_gap_threshold) / outlier_gap_threshold))
 
     return 0.0
+
+
+_CONTENT_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}|\d{2,}")
+_STOP_TOKENS = {
+    "the", "and", "for", "that", "this", "with", "from", "have", "has",
+    "was", "were", "are", "you", "your", "about", "into", "than", "then",
+    "here", "there", "their", "they", "them", "his", "her", "she", "him",
+    "its", "our", "out", "not", "but", "can", "will", "would", "should",
+    "could", "according", "available", "latest", "current", "verified",
+}
+
+_SENTENCE_SIM_CACHE: Dict[str, np.ndarray] = {}
+
+
+def _content_tokens(text: str) -> set:
+    return {
+        tok.lower()
+        for tok in _CONTENT_TOKEN_RE.findall(str(text or ""))
+        if tok.lower() not in _STOP_TOKENS
+    }
+
+
+def _jaccard_sim(a: set, b: set) -> float:
+    if not a or not b:
+        return 0.0
+    return float(len(a & b) / max(1, len(a | b)))
+
+
+def _avg_pairwise(vals: Sequence[float]) -> float:
+    if not vals:
+        return 0.0
+    return float(sum(vals) / len(vals))
+
+
+def _text_similarity(a: str, b: str) -> float:
+    """Deterministic lexical similarity used as a safe fallback."""
+    return _jaccard_sim(_content_tokens(a), _content_tokens(b))
+
+
+def _semantic_embedding(text: str) -> Optional[np.ndarray]:
+    """
+    Cached sentence embedding for page-local/browser semantic checks.
+
+    This path is intentionally best-effort: when the sentence-transformer model
+    is unavailable, callers fall back to lexical similarity instead of failing
+    closed or silently zeroing a defense path.
+    """
+    key = str(text or "").strip()[:400]
+    if not key:
+        return None
+    cached = _SENTENCE_SIM_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        from embedding import get_sentence_embedder
+        emb = get_sentence_embedder().embed(key)
+    except Exception:
+        return None
+    _SENTENCE_SIM_CACHE[key] = emb
+    return emb
+
+
+def _semantic_text_similarity(a: str, b: str) -> Optional[float]:
+    emb_a = _semantic_embedding(a)
+    emb_b = _semantic_embedding(b)
+    if emb_a is None or emb_b is None:
+        return None
+    return _clip01(float(safe_cosine_sim(emb_a, emb_b)))
+
+
+def _mixed_text_similarity(a: str, b: str) -> float:
+    """
+    Browser/page-local similarity that prefers semantic agreement when the
+    sentence embedder is available and safely falls back to lexical overlap.
+    """
+    lexical = _text_similarity(a, b)
+    semantic = _semantic_text_similarity(a, b)
+    if semantic is None:
+        return lexical
+    # Semantic signal carries most weight; lexical overlap stabilises short ASUs.
+    return _clip01(0.75 * semantic + 0.25 * lexical)
+
+
+def _memory_conflict_score(
+    *,
+    incoming_text: str,
+    fact_key: Optional[str],
+    fact_value: Optional[str],
+    existing_items: Sequence["MemoryItem"],
+) -> float:
+    """
+    Estimate whether a browser sentence is trying to revise established memory.
+
+    Strong path: structured fact-key/value collision. Fallback: same-topic,
+    non-identical similarity to trusted planning memory. The fallback is
+    intentionally conservative and deterministic; semantic embedders can improve
+    it, but the gate must not silently depend on unavailable model packages.
+    """
+    if fact_key and fact_value:
+        target = _norm_fact_token(fact_value)
+        for it in reversed(list(existing_items)):
+            if getattr(it, "partition", "planning") == "audit":
+                continue
+            if getattr(it, "fact_key", None) != fact_key:
+                continue
+            prior = _norm_fact_token(getattr(it, "fact_value", None))
+            if prior and target and prior != target:
+                return 1.0
+
+    inc_tokens = _content_tokens(incoming_text)
+    if not inc_tokens:
+        return 0.0
+    best = 0.0
+    for it in reversed(list(existing_items)):
+        if getattr(it, "partition", "planning") == "audit":
+            continue
+        if getattr(it, "source_type", "") in {"self_summary", "protected_fact"}:
+            continue
+        if float(getattr(it, "trust", 0.0)) < 0.55:
+            continue
+        prior_text = str(it.text or "")
+        lexical = _jaccard_sim(inc_tokens, _content_tokens(prior_text))
+        semantic = _semantic_text_similarity(incoming_text, prior_text)
+        sim = lexical if semantic is None else max(lexical, semantic)
+        if 0.12 <= sim < 0.95:
+            best = max(best, min(1.0, sim / 0.45))
+    return best
+
+
+def _observation_group_divergence_scores(
+    *,
+    incoming_text: str,
+    observation_group: Optional[str],
+    existing_items: Sequence["MemoryItem"],
+    fact_key: Optional[str],
+    fact_value: Optional[str],
+    min_siblings: int = 2,
+    cohesion_threshold: float = 0.22,
+    outlier_gap_threshold: float = 0.18,
+    rolling_window: int = 4,
+) -> Tuple[float, float, bool]:
+    """
+    Same-page observation-group defense for browser scraping tasks.
+
+    The check compares a browser ASU/sentence against sibling ASUs from the same
+    scraped page. Moderate page-local outliers require evidence that they are
+    revising/probing established memory. Structured page-local claims
+    (fact_key/fact_value) use a lower outlier threshold because they are exactly
+    the writes that can harden into durable memory. Ordinary heterogeneous web
+    paragraphs are not quarantined solely for topical diversity. This differs
+    from cross-source divergence: the comparison set is the current page group,
+    not all prior pages in memory.
+    """
+    group = str(observation_group or "").strip()
+    if not group:
+        return 0.0, 0.0, False
+    siblings = [
+        it for it in existing_items
+        if getattr(it, "source_type", "") == _BROWSER_TOOL_SOURCE
+        and getattr(it, "partition", "") == "evidence"
+        and getattr(it, "observation_group", None) == group
+        and str(it.text or "").strip()
+    ][-12:]
+    if len(siblings) < min_siblings:
+        return 0.0, 0.0, False
+
+    sibling_texts = [str(it.text or "") for it in siblings]
+    radius = max(1, int(rolling_window // 2))
+    sibling_neighbor_sims: List[float] = []
+    for i, text_i in enumerate(sibling_texts):
+        lo = max(0, i - radius)
+        hi = min(len(sibling_texts), i + radius + 1)
+        sims = [
+            _mixed_text_similarity(text_i, sibling_texts[j])
+            for j in range(lo, hi)
+            if i != j
+        ]
+        if sims:
+            sibling_neighbor_sims.append(max(sims))
+    cohesion = _avg_pairwise(sibling_neighbor_sims)
+    if cohesion < cohesion_threshold:
+        return 0.0, 0.0, False
+
+    compare_texts = sibling_texts[-max(min_siblings, rolling_window):]
+    incoming_sims = [_mixed_text_similarity(incoming_text, s) for s in compare_texts]
+    incoming_avg = max(incoming_sims) if incoming_sims else 0.0
+    gap = cohesion - incoming_avg
+    if gap <= outlier_gap_threshold:
+        outlier_score = 0.0
+    else:
+        outlier_score = min(1.0, (gap - outlier_gap_threshold) / max(1e-6, outlier_gap_threshold))
+
+    conflict_score = _memory_conflict_score(
+        incoming_text=incoming_text,
+        fact_key=fact_key,
+        fact_value=fact_value,
+        existing_items=existing_items,
+    )
+    structured_claim = bool(fact_key and fact_value)
+    fired = (
+        (outlier_score >= 0.50 and conflict_score >= 0.50)
+        or (structured_claim and outlier_score >= 0.35)
+    )
+    return float(outlier_score), float(conflict_score), bool(fired)
+
+
+def _precomputed_observation_group_scores(kwargs: dict) -> Optional[Tuple[float, float, bool]]:
+    outlier = kwargs.get("precomputed_group_outlier_score")
+    conflict = kwargs.get("precomputed_memory_conflict_score")
+    fired = kwargs.get("precomputed_group_divergence_fired")
+    if outlier is None and conflict is None and fired is None:
+        return None
+    return (
+        _clip01(float(outlier or 0.0)),
+        _clip01(float(conflict or 0.0)),
+        bool(fired),
+    )
 
 
 def _abr_suspicion_score(
@@ -484,7 +707,7 @@ _DATE_RE = re.compile(
 _NAME_RE = re.compile(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?)\b")
 _NUMBER_RE = re.compile(r"\b(\d{1,5})\b")
 
-_TRUSTED_SOURCES = {"user", "tool_output_text", "ocr_text"}
+_TRUSTED_SOURCES = {"user", "tool_output_text", "browser_tool_output_text"}
 
 def extract_key_facts(items: List["MemoryItem"], guard=None) -> List[dict]:
     """
@@ -773,11 +996,17 @@ class BaseMemory:
         claimed_source: Optional[str] = None,
         session_idx: Optional[int] = None,
         observation_group: Optional[str] = None,
+        source_url: Optional[str] = None,
+        page_id: Optional[str] = None,
         fact_key: Optional[str] = None,
         fact_value: Optional[str] = None,
         multimodal_relation: Optional[str] = None,
         attack_family: Optional[str] = None,
         quality_score: Optional[float] = None,
+        group_outlier_score: float = 0.0,
+        memory_conflict_score: float = 0.0,
+        group_divergence_fired: bool = False,
+        structured_claim_gate_fired: bool = False,
     ) -> int:
         _t0 = time.perf_counter()
         emb = self.embedder.embed(text)
@@ -796,11 +1025,17 @@ class BaseMemory:
             claimed_source=claimed_source,
             session_idx=int(session_idx) if session_idx is not None else None,
             observation_group=str(observation_group) if observation_group is not None else None,
+            source_url=str(source_url) if source_url is not None else None,
+            page_id=str(page_id) if page_id is not None else None,
             fact_key=str(fact_key) if fact_key is not None else None,
             fact_value=str(fact_value) if fact_value is not None else None,
             multimodal_relation=str(multimodal_relation) if multimodal_relation is not None else None,
             attack_family=str(attack_family) if attack_family is not None else None,
             quality_score=_clip01(1.0 if quality_score is None else float(quality_score)),
+            group_outlier_score=_clip01(float(group_outlier_score)),
+            memory_conflict_score=_clip01(float(memory_conflict_score)),
+            group_divergence_fired=bool(group_divergence_fired),
+            structured_claim_gate_fired=bool(structured_claim_gate_fired),
         )
         self._next_id += 1
         if partition == "audit":
@@ -1221,10 +1456,16 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
         claimed_source=None,
         session_idx: Optional[int] = None,
         observation_group: Optional[str] = None,
+        source_url: Optional[str] = None,
+        page_id: Optional[str] = None,
         fact_key: Optional[str] = None,
         fact_value: Optional[str] = None,
         multimodal_relation: Optional[str] = None,
         attack_family: Optional[str] = None,
+        group_outlier_score: float = 0.0,
+        memory_conflict_score: float = 0.0,
+        group_divergence_fired: bool = False,
+        structured_claim_gate_fired: bool = False,
     ) -> int:
         """Write-time gate: items with trust below threshold go to audit partition.
 
@@ -1299,10 +1540,16 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                         claimed_source=claimed_source,
                         session_idx=session_idx,
                         observation_group=observation_group,
+                        source_url=source_url,
+                        page_id=page_id,
                         fact_key=fact_key,
                         fact_value=fact_value,
                         multimodal_relation=multimodal_relation,
                         attack_family=attack_family,
+                        group_outlier_score=group_outlier_score,
+                        memory_conflict_score=memory_conflict_score,
+                        group_divergence_fired=group_divergence_fired,
+                        structured_claim_gate_fired=structured_claim_gate_fired,
                     )
                     super().write(
                         text=build_conflict_evidence_text(
@@ -1320,6 +1567,8 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                         claimed_source=None,
                         session_idx=session_idx,
                         observation_group=observation_group,
+                        source_url=source_url,
+                        page_id=page_id,
                         fact_key=fact_key,
                         fact_value="conflict",
                         multimodal_relation="conflict",
@@ -1357,9 +1606,16 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                     step=step, parent_ids=parent_ids, partition="audit",
                     trust=computed_trust, actionable=False,
                     claimed_source=claimed_source, session_idx=session_idx,
-                    observation_group=observation_group, fact_key=fact_key,
+                    observation_group=observation_group,
+                    source_url=source_url,
+                    page_id=page_id,
+                    fact_key=fact_key,
                     fact_value=fact_value, multimodal_relation=multimodal_relation,
                     attack_family=attack_family,
+                    group_outlier_score=group_outlier_score,
+                    memory_conflict_score=memory_conflict_score,
+                    group_divergence_fired=group_divergence_fired,
+                    structured_claim_gate_fired=structured_claim_gate_fired,
                 )
             # DATA: advocate has attested the content; carry its extracted facts
             write_text = text
@@ -1422,9 +1678,16 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
                 step=step, parent_ids=parent_ids, partition="audit",
                 trust=computed_trust, actionable=False, claimed_source=claimed_source,
                 session_idx=session_idx,
-                observation_group=observation_group, fact_key=fact_key,
+                observation_group=observation_group,
+                source_url=source_url,
+                page_id=page_id,
+                fact_key=fact_key,
                 fact_value=fact_value, multimodal_relation=multimodal_relation,
                 attack_family=attack_family,
+                group_outlier_score=group_outlier_score,
+                memory_conflict_score=memory_conflict_score,
+                group_divergence_fired=group_divergence_fired,
+                structured_claim_gate_fired=structured_claim_gate_fired,
             )
         # CRT: clean write — channel slowly recovers reputation
         if source_type != "user":
@@ -1434,9 +1697,16 @@ class ConstructorGuardedSandboxMemory(RecursiveSummarizationMemory):
             step=step, parent_ids=parent_ids, partition=partition,
             trust=computed_trust, actionable=actionable, claimed_source=claimed_source,
             session_idx=session_idx,
-            observation_group=observation_group, fact_key=fact_key,
+            observation_group=observation_group,
+            source_url=source_url,
+            page_id=page_id,
+            fact_key=fact_key,
             fact_value=fact_value, multimodal_relation=multimodal_relation,
             attack_family=attack_family,
+            group_outlier_score=group_outlier_score,
+            memory_conflict_score=memory_conflict_score,
+            group_divergence_fired=group_divergence_fired,
+            structured_claim_gate_fired=structured_claim_gate_fired,
         )
         # Option B: advocate-attested facts stored inline at write time.
         # These bypass the _buffer (BaseMemory.write) so they are never consolidated
@@ -1840,11 +2110,31 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         self._consistency_graph = consistency_graph
         self._correction_scorer = correction_scorer
         self._enable_abr = bool(enable_abr)
+        self.group_divergence_fire_count = 0
+        self.group_divergence_quarantine_count = 0
+        self.group_outlier_score_total = 0.0
+        self.memory_conflict_score_total = 0.0
+        self.group_divergence_eval_count = 0
+        self.structured_claim_gate_fire_count = 0
         # Moving-target jitter: small per-instance noise on ABR threshold
         # makes exact threshold gaming harder for adaptive adversaries.
         import random as _rand
         _noise = float(getattr(getattr(cfg, "thresholds", object()), "abr_noise_scale", 0.05)) if cfg is not None else 0.05
         self._abr_jitter: float = _rand.uniform(-_noise, _noise)
+
+    def latency_summary(self) -> dict:
+        out = super().latency_summary()
+        denom = max(1, int(self.group_divergence_eval_count))
+        out.update(
+            {
+                "group_divergence_fire_count": int(self.group_divergence_fire_count),
+                "group_divergence_quarantine_count": int(self.group_divergence_quarantine_count),
+                "structured_claim_gate_fire_count": int(self.structured_claim_gate_fire_count),
+                "group_outlier_score_avg": round(float(self.group_outlier_score_total) / denom, 4),
+                "memory_conflict_score_avg": round(float(self.memory_conflict_score_total) / denom, 4),
+            }
+        )
+        return out
 
     def _all_items_by_id(self) -> Dict[int, MemoryItem]:
         return {
@@ -2229,6 +2519,44 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             if suspicion > effective_thr:
                 kwargs["trust"] = min(float(kwargs["trust"]), abr_cap)
 
+        # ── Same-page observation-group divergence gate ─────────────────────
+        # Browser attacks often arrive as one malicious sentence embedded in an
+        # otherwise coherent page. Compare this ASU against siblings from the
+        # same page group, then require evidence that it revises/probes memory.
+        if self._enable_abr and source_type == _BROWSER_TOOL_SOURCE:
+            precomputed = _precomputed_observation_group_scores(kwargs)
+            if precomputed is None:
+                outlier_score, conflict_score, group_fired = _observation_group_divergence_scores(
+                    incoming_text=text,
+                    observation_group=kwargs.get("observation_group"),
+                    existing_items=self.items,
+                    fact_key=kwargs.get("fact_key"),
+                    fact_value=str(kwargs.get("fact_value", "") or ""),
+                )
+            else:
+                outlier_score, conflict_score, group_fired = precomputed
+            kwargs["group_outlier_score"] = outlier_score
+            kwargs["memory_conflict_score"] = conflict_score
+            kwargs["group_divergence_fired"] = group_fired
+            if outlier_score > 0.0 or conflict_score > 0.0:
+                self.group_divergence_eval_count += 1
+                self.group_outlier_score_total += outlier_score
+                self.memory_conflict_score_total += conflict_score
+            if group_fired:
+                self.group_divergence_fire_count += 1
+                self.group_divergence_quarantine_count += 1
+                kwargs["trust"] = min(float(kwargs["trust"]), 0.10)
+
+            # Browser pages are evidence sources, not privileged answer writers.
+            # A page-local observation may support an answer downstream, but a
+            # direct qa_answer claim from externally controlled browser text is
+            # an answer-revision attempt unless independently derived elsewhere.
+            if kwargs.get("fact_key") == "qa_answer" and kwargs.get("fact_value"):
+                self.structured_claim_gate_fire_count += 1
+                kwargs["structured_claim_gate_fired"] = True
+                kwargs["memory_conflict_score"] = max(float(kwargs.get("memory_conflict_score", 0.0)), 1.0)
+                kwargs["trust"] = min(float(kwargs["trust"]), 0.10)
+
         # ── Cross-source divergence check (browser scraping tasks only) ──────
         # When the agent is scraping multiple websites for the same task, all
         # scraped sentences should cluster around the same topic. A sentence
@@ -2236,7 +2564,7 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         # is flagged as suspicious — likely an attacker injecting one fake fact
         # into a stream of otherwise consistent legitimate scrapes.
         # Only fires for browser_tool_output_text with >= 3 prior scrapes.
-        if source_type == _BROWSER_TOOL_SOURCE:
+        if self._enable_abr and source_type == _BROWSER_TOOL_SOURCE:
             div_score = _cross_source_divergence_score(
                 incoming_text=text,
                 existing_items=self.items,
@@ -2244,6 +2572,7 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             if div_score > 0.5:
                 # Strong outlier — cap trust significantly
                 kwargs["trust"] = min(float(kwargs["trust"]), 0.25)
+                kwargs["group_divergence_fired"] = bool(kwargs.get("group_divergence_fired", False))
             elif div_score > 0.0:
                 # Mild outlier — light trust penalty
                 kwargs["trust"] = min(float(kwargs["trust"]), 0.40)
@@ -2642,6 +2971,8 @@ class Mem0PlatformMemory(BaseMemory):
             "trust": item.trust,
             "session_idx": item.session_idx,
             "observation_group": item.observation_group,
+            "source_url": item.source_url,
+            "page_id": item.page_id,
             "fact_key": item.fact_key,
             "fact_value": item.fact_value,
             "multimodal_relation": item.multimodal_relation,
@@ -2699,6 +3030,8 @@ class Mem0PlatformMemory(BaseMemory):
                     claimed_source=None,
                     session_idx=int(metadata["session_idx"]) if metadata.get("session_idx") is not None else None,
                     observation_group=str(metadata["observation_group"]) if metadata.get("observation_group") is not None else None,
+                    source_url=str(metadata["source_url"]) if metadata.get("source_url") is not None else None,
+                    page_id=str(metadata["page_id"]) if metadata.get("page_id") is not None else None,
                     fact_key=str(metadata["fact_key"]) if metadata.get("fact_key") is not None else None,
                     fact_value=str(metadata["fact_value"]) if metadata.get("fact_value") is not None else None,
                     multimodal_relation=str(metadata["multimodal_relation"]) if metadata.get("multimodal_relation") is not None else None,

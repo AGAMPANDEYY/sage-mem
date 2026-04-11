@@ -5,3 +5,4 @@ openai>=2.30.0
 Pillow>=12.2.0
 rich>=13.7.0
 python-dotenv>=1.0.1
+sentence-transformers>=2.7.0

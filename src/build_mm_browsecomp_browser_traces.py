@@ -156,11 +156,15 @@ def main() -> None:
                 if not text:
                     continue
                 formatted = f"PAGE_TITLE: {title}\nPAGE_TEXT: {text}" if title else f"PAGE_TEXT: {text}"
+                group_id = f"mmbrowse:{case_id}:source_{idx}"
                 observations.append(
                     {
                         "text": formatted,
                         "source_type": "tool_output_text",
                         "channel_id": f"source_{idx}",
+                        "observation_group": group_id,
+                        "page_id": group_id,
+                        "source_url": url.strip(),
                         "session_idx": 1,
                         "role": "tool",
                     }
@@ -177,6 +181,9 @@ def main() -> None:
                                 "text": ocr_text,
                                 "source_type": "ocr_text",
                                 "channel_id": f"source_{idx}_page_ocr",
+                                "observation_group": group_id,
+                                "page_id": group_id,
+                                "source_url": url.strip(),
                                 "session_idx": 1,
                                 "role": "vision",
                             }
@@ -191,11 +198,15 @@ def main() -> None:
                 ocr_text = _ocr_file(img_path, args.max_ocr_chars)
                 if ocr_text:
                     page_signal["image_ocr_hits"] += 1
+                    group_id = f"mmbrowse:{case_id}:image_{idx}"
                     observations.append(
                         {
                             "text": ocr_text,
                             "source_type": "ocr_text",
                             "channel_id": f"image_{idx}_ocr",
+                            "observation_group": group_id,
+                            "page_id": group_id,
+                            "source_url": url.strip(),
                             "session_idx": 1,
                             "role": "vision",
                         }

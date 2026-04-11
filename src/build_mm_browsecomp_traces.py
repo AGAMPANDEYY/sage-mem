@@ -166,11 +166,15 @@ def _process_row(row: dict, timeout_s: int, max_page_chars: int, max_ocr_chars: 
             continue
         text = _fetch_url_text(url.strip(), timeout_s, max_page_chars)
         if text:
+            group_id = f"mmbrowse:{case_id}:source_{idx}"
             observations.append(
                 {
                     "text": text,
                     "source_type": "tool_output_text",
                     "channel_id": f"source_{idx}",
+                    "observation_group": group_id,
+                    "page_id": group_id,
+                    "source_url": url.strip(),
                     "session_idx": 1,
                     "role": "tool",
                 }
@@ -181,11 +185,15 @@ def _process_row(row: dict, timeout_s: int, max_page_chars: int, max_ocr_chars: 
             continue
         ocr_text = _fetch_image_ocr(url.strip(), timeout_s, max_ocr_chars)
         if ocr_text:
+            group_id = f"mmbrowse:{case_id}:image_{idx}"
             observations.append(
                 {
                     "text": ocr_text,
                     "source_type": "ocr_text",
                     "channel_id": f"image_{idx}_ocr",
+                    "observation_group": group_id,
+                    "page_id": group_id,
+                    "source_url": url.strip(),
                     "session_idx": 1,
                     "role": "vision",
                 }

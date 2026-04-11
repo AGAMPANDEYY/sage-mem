@@ -114,6 +114,10 @@ def parse_args():
                    help="Run only MM-BrowseComp and skip the LoCoMo benchmark")
     p.add_argument("--mm-browsecomp-path", type=str, default=None,
                    help=f"Path to official or augmented MM-BrowseComp JSONL (default: {MM_BROWSECOMP_PATH})")
+    p.add_argument("--mm-augmented-cases-path", type=str, default=None,
+                   help="Optional JSONL path for frozen vision-augmented MM-BrowseComp cases. "
+                        "If present, runs load this file instead of rebuilding augmented cases; "
+                        "if absent, the file is created after augmentation and reused on later runs.")
     p.add_argument("--quick", action="store_true",
                    help="Fast mode: seed=0 only, 5 QA per case")
     p.add_argument("--config-path", type=Path, default=None,
@@ -479,6 +483,7 @@ def _build_output_payload(
             "run_mm_browsecomp": bool(args.run_mm_browsecomp),
             "mm_only": bool(args.mm_only),
             "mm_browsecomp_path": str(args.mm_browsecomp_path or MM_BROWSECOMP_PATH),
+            "mm_augmented_cases_path": str(args.mm_augmented_cases_path) if args.mm_augmented_cases_path else None,
             "mm_splits": args.mm_splits or ["clean", "poisoned"],
             "multimodal_turn_rate": hp["multimodal_turn_rate"],
             "ocr_noise_prob_low": hp["ocr_noise_prob_low"],
@@ -669,6 +674,7 @@ def main():
         "vision_caption_mode": args.vision_caption_mode,
         "vision_model": args.vision_model,
         "vision_cache_dir": args.vision_cache_dir,
+        "mm_augmented_cases_path": args.mm_augmented_cases_path,
         "vision_max_output_tokens": 96,
         "multimodal_adversary_mode": args.multimodal_adversary_mode,
         "adversary_model": args.adversary_model,

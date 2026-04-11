@@ -142,7 +142,7 @@ Output:
 
 ## 5. MM-BrowseComp Full Runs
 
-### Clean track
+### Baseline clean track
 
 ```bash
 make full-mm-clean RUN_ID=paper_mmclean_h5_v1
@@ -151,7 +151,7 @@ make full-mm-clean RUN_ID=paper_mmclean_h5_v1
 Output:
 - `results/paper_mmclean_h5_v1/sagemem_mm_browsecomp_clean.json`
 
-### Adversarial track
+### Baseline adversarial track
 
 ```bash
 make full-mm-adversarial RUN_ID=paper_mmadv_h5_v1
@@ -164,6 +164,42 @@ Interpretation guidance:
 - these runs include `--include-browsing-prior`,
 - `SAGEMemV2_BrowsingTrustPrior` is the explicit H5 condition,
 - compare it against generic `SAGE-Mem v2` to test whether browsing-derived external text needs a source-context prior.
+
+### Canonical grouped H5/H6 browsing runs
+
+```bash
+make full-mm-abr-clean RUN_ID=paper_mmclean_abr_group_v1
+make full-mm-abr-adversarial RUN_ID=paper_mmadv_abr_group_v1
+```
+
+Outputs:
+- `results/paper_mmclean_abr_group_v1/sagemem_mm_browsecomp_abr_clean.json`
+- `results/paper_mmadv_abr_group_v1/sagemem_mm_browsecomp_abr_adversarial.json`
+
+Interpretation guidance:
+- these are the canonical browsing runs for the paper,
+- they include the grouped H5/H6 comparison,
+- `SAGEMemV2_BrowsingTrustPrior` is H5,
+- `SAGEMemV2_ABR` is H6,
+- use these runs, not the older H5-only pair, when citing browsing results in the draft.
+
+### Secondary semantic observation-group browsing reruns
+
+These were run directly on EC2 with the semantic observation-group path enabled and then copied back into the local final artifact folder.
+
+Source run IDs:
+- `paper_mmclean_abr_sem_v1`
+- `paper_mmadv_abr_sem_v1`
+
+Local artifact paths:
+- [sagemem_mm_browsecomp_abr_clean_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_clean_semantic.json)
+- [sagemem_mm_browsecomp_abr_adversarial_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_adversarial_semantic.json)
+
+Interpretation guidance:
+- these are secondary mechanism ablations,
+- they preserve the main H6 result,
+- they are not the canonical paper pair,
+- use them only when discussing page-group signal behavior or semantic rerun stability.
 
 ---
 
@@ -184,7 +220,11 @@ make analyze-run RUN_ID=paper_vpi_full_v1
 make analyze-run RUN_ID=paper_mmrobust_full_v1
 make analyze-run RUN_ID=paper_mmclean_h5_v1
 make analyze-run RUN_ID=paper_mmadv_h5_v1
+make analyze-run RUN_ID=paper_mmclean_abr_group_v1
+make analyze-run RUN_ID=paper_mmadv_abr_group_v1
 ```
+
+For the copied semantic reruns, inspect the local final artifact files directly or load them with a custom comparison script; they are not stored under a local `results/<RUN_ID>/` folder.
 
 ---
 
@@ -220,6 +260,8 @@ make full-vpi-llm RUN_ID=paper_vpi_full_v1
 make full-mm-robust-ablations RUN_ID=paper_mmrobust_full_v1
 make full-mm-clean RUN_ID=paper_mmclean_h5_v1
 make full-mm-adversarial RUN_ID=paper_mmadv_h5_v1
+make full-mm-abr-clean RUN_ID=paper_mmclean_abr_group_v1
+make full-mm-abr-adversarial RUN_ID=paper_mmadv_abr_group_v1
 ```
 
 Then analyze:
@@ -231,6 +273,8 @@ make analyze-run RUN_ID=paper_vpi_full_v1
 make analyze-run RUN_ID=paper_mmrobust_full_v1
 make analyze-run RUN_ID=paper_mmclean_h5_v1
 make analyze-run RUN_ID=paper_mmadv_h5_v1
+make analyze-run RUN_ID=paper_mmclean_abr_group_v1
+make analyze-run RUN_ID=paper_mmadv_abr_group_v1
 ```
 
 ---
@@ -246,6 +290,14 @@ Main paper evidence:
 Appendix / external stress test:
 - `paper_mmclean_h5_v1`
 - `paper_mmadv_h5_v1`
+
+Canonical browsing comparison for the paper:
+- `paper_mmclean_abr_group_v1`
+- `paper_mmadv_abr_group_v1`
+
+Secondary browsing mechanism ablation:
+- `paper_mmclean_abr_sem_v1`
+- `paper_mmadv_abr_sem_v1`
 
 ## 10. Latest Result Mapping
 
@@ -263,8 +315,24 @@ Use this provenance mapping when citing results in the draft:
 | `sagemem_multimodal_robustness_ablations.json` | `paper_mmrobust_full_v1` |
 | `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_h5_v1` |
 | `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_h5_v1` |
+| `sagemem_mm_browsecomp_abr_clean.json` | `paper_mmclean_abr_group_v1` |
+| `sagemem_mm_browsecomp_abr_adversarial.json` | `paper_mmadv_abr_group_v1` |
+| `sagemem_mm_browsecomp_abr_clean_semantic.json` | `paper_mmclean_abr_sem_v1` |
+| `sagemem_mm_browsecomp_abr_adversarial_semantic.json` | `paper_mmadv_abr_sem_v1` |
 
-The corrected H5 MM-BrowseComp pair is `paper_mmclean_h5_v1` / `paper_mmadv_h5_v1`.
+For the paper, the canonical browsing pair is `paper_mmclean_abr_group_v1` / `paper_mmadv_abr_group_v1`.
+
+Exact local final artifact paths:
+- [sagemem_main_llm.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_main_llm.json)
+- [sagemem_v2_ablations.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_v2_ablations.json)
+- [sagemem_vpi_llm.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_vpi_llm.json)
+- [sagemem_multimodal_robustness_ablations.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_multimodal_robustness_ablations.json)
+- [sagemem_mm_browsecomp_clean.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_clean.json)
+- [sagemem_mm_browsecomp_adversarial.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_adversarial.json)
+- [sagemem_mm_browsecomp_abr_clean.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_clean.json)
+- [sagemem_mm_browsecomp_abr_adversarial.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_adversarial.json)
+- [sagemem_mm_browsecomp_abr_clean_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_clean_semantic.json)
+- [sagemem_mm_browsecomp_abr_adversarial_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_adversarial_semantic.json)
 
 ## 11. Audit Commands
 
@@ -278,4 +346,10 @@ Validate frozen result provenance against the current dataset:
 
 ```bash
 python3 scripts/audit_final_results.py
+```
+
+Frozen MM-BrowseComp augmented-case cache used on EC2:
+
+```text
+/home/ec2-user/mem-shield-full/data/mm_browsecomp_cases_augmented_openai.jsonl
 ```

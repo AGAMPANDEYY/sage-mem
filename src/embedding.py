@@ -60,6 +60,21 @@ class SentenceTransformerEmbedder:
         vec = self._model.encode(text, normalize_embeddings=True, show_progress_bar=False)
         return np.array(vec, dtype=np.float32)
 
+    def batch_embed(self, texts: List[str]) -> List[np.ndarray]:
+        self._load()
+        clean = [str(t or "").strip() for t in texts]
+        if not clean:
+            return []
+        nonempty_idx = [i for i, t in enumerate(clean) if t]
+        out: List[np.ndarray] = [np.zeros(self.dim, dtype=np.float32) for _ in clean]
+        if not nonempty_idx:
+            return out
+        batch = [clean[i] for i in nonempty_idx]
+        vecs = self._model.encode(batch, normalize_embeddings=True, show_progress_bar=False)
+        for idx, vec in zip(nonempty_idx, vecs):
+            out[idx] = np.array(vec, dtype=np.float32)
+        return out
+
 
 # Singleton — shared across all consistency graph instances
 _sentence_embedder: Optional[SentenceTransformerEmbedder] = None

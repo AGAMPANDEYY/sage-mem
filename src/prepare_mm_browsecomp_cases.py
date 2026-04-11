@@ -183,6 +183,17 @@ def _validate_observations(case_id: str, observations: object) -> List[dict]:
                 "text": text,
                 "source_type": source_type,
                 "channel_id": str(obs.get("channel_id", f"obs_{idx}")),
+                "observation_group": str(
+                    obs.get("observation_group")
+                    or obs.get("page_id")
+                    or f"{case_id}:{obs.get('channel_id', f'obs_{idx}')}"
+                ),
+                "page_id": str(
+                    obs.get("page_id")
+                    or obs.get("observation_group")
+                    or f"{case_id}:{obs.get('channel_id', f'obs_{idx}')}"
+                ),
+                "source_url": str(obs["source_url"]) if obs.get("source_url") is not None else None,
                 "session_idx": int(obs.get("session_idx", 1)),
                 "role": str(obs.get("role", "tool")),
             }
