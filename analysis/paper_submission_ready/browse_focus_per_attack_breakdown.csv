@@ -1,0 +1,9 @@
+condition,attack_type,attempts,admitted,write_admission_rate,retrieval_rate,false_belief_rate
+MMA,fact_overwrite_adaptive,582,582,1.0,0.8127147766323024,0.0
+MMA,fact_overwrite_injection,582,582,1.0,1.0,0.0
+SAGE-Mem v2,fact_overwrite_adaptive,582,384,0.6597938144329897,0.36597938144329895,0.09106529209621993
+SAGE-Mem v2,fact_overwrite_injection,582,367,0.6305841924398625,0.5051546391752577,0.09965635738831616
+H5,fact_overwrite_adaptive,582,388,0.6666666666666666,0.8298969072164949,0.0
+H5,fact_overwrite_injection,582,0,0.0,0.0,0.0
+H6,fact_overwrite_adaptive,582,0,0.0,0.0,0.0
+H6,fact_overwrite_injection,582,0,0.0,0.0,0.0

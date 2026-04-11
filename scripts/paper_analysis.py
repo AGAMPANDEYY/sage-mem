@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import math
+import statistics
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -35,6 +36,8 @@ PAPER_FILES = {
     "browse_adv": "sagemem_mm_browsecomp_abr_adversarial.json",
     "browse_clean_sem": "sagemem_mm_browsecomp_abr_clean_semantic.json",
     "browse_adv_sem": "sagemem_mm_browsecomp_abr_adversarial_semantic.json",
+    "main_focus_schema": "sagemem_main_focus_schema.json",
+    "browse_adv_focus_schema": "sagemem_mm_browsecomp_abr_adversarial_focus_schema.json",
 }
 
 
@@ -211,6 +214,175 @@ def build_systems_cost_table(results_dir: Path, out_dir: Path) -> None:
     write_csv(out_dir / "systems_cost_table.csv", rows, fieldnames)
 
 
+def _load_raw_rows(path: Path, benchmark: str, split: str) -> dict[str, list[dict[str, Any]]]:
+    data = load_json(path)
+    bench = data["benchmarks"][benchmark]
+    raw = bench["raw"]
+    return {cond: list(splits.get(split, [])) for cond, splits in raw.items()}
+
+
+def _condition_seed_metrics(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_seed: dict[Any, list[dict[str, Any]]] = {}
+    for row in rows:
+        seed = row.get("seed")
+        if seed is None:
+            return []
+        by_seed.setdefault(seed, []).append(row)
+    out: list[dict[str, Any]] = []
+    for seed, seed_rows in sorted(by_seed.items()):
+        n = len(seed_rows)
+        if n == 0:
+            continue
+        out.append(
+            {
+                "seed": seed,
+                "n_rows": n,
+                "BCU": sum(1 for r in seed_rows if r.get("answer_consistent") and not r.get("attack_survived")) / n,
+                "ASR": sum(1 for r in seed_rows if r.get("attack_survived")) / n,
+                "WriteASR": (
+                    sum(r.get("attack_write_admitted_count", 0) for r in seed_rows)
+                    / max(1, sum(r.get("attack_write_attempt_count", 0) for r in seed_rows))
+                ),
+                "FalseBelief": sum(1 for r in seed_rows if r.get("false_belief_retrieved")) / n,
+            }
+        )
+    return out
+
+
+def _mean_std(values: list[float]) -> tuple[float, float]:
+    if not values:
+        return (float("nan"), float("nan"))
+    if len(values) == 1:
+        return (values[0], 0.0)
+    return (statistics.fmean(values), statistics.stdev(values))
+
+
+def build_seed_stats_table(results_dir: Path, out_dir: Path, *, filename: str, benchmark: str, split: str, out_name: str) -> None:
+    path = results_dir / filename
+    if not path.exists():
+        return
+    raw = _load_raw_rows(path, benchmark=benchmark, split=split)
+    rows_out: list[dict[str, Any]] = []
+    for cond, rows in raw.items():
+        seed_rows = _condition_seed_metrics(rows)
+        if not seed_rows:
+            continue
+        bcu_mean, bcu_std = _mean_std([r["BCU"] for r in seed_rows])
+        asr_mean, asr_std = _mean_std([r["ASR"] for r in seed_rows])
+        wasr_mean, wasr_std = _mean_std([r["WriteASR"] for r in seed_rows])
+        fbr_mean, fbr_std = _mean_std([r["FalseBelief"] for r in seed_rows])
+        rows_out.append(
+            {
+                "condition": COND_SHORT.get(cond, cond),
+                "n_seeds": len(seed_rows),
+                "BCU_mean": bcu_mean,
+                "BCU_std": bcu_std,
+                "ASR_mean": asr_mean,
+                "ASR_std": asr_std,
+                "WriteASR_mean": wasr_mean,
+                "WriteASR_std": wasr_std,
+                "FalseBelief_mean": fbr_mean,
+                "FalseBelief_std": fbr_std,
+            }
+        )
+    if rows_out:
+        write_csv(
+            out_dir / out_name,
+            rows_out,
+            ["condition", "n_seeds", "BCU_mean", "BCU_std", "ASR_mean", "ASR_std", "WriteASR_mean", "WriteASR_std", "FalseBelief_mean", "FalseBelief_std"],
+        )
+
+
+def build_per_attack_table(results_dir: Path, out_dir: Path, *, filename: str, benchmark: str, split: str, out_name: str) -> None:
+    path = results_dir / filename
+    if not path.exists():
+        return
+    raw = _load_raw_rows(path, benchmark=benchmark, split=split)
+    out_rows: list[dict[str, Any]] = []
+    for cond, rows in raw.items():
+        attempts: dict[str, int] = {}
+        admitted: dict[str, int] = {}
+        retrieved_hits: dict[str, int] = {}
+        false_belief_hits: dict[str, int] = {}
+        row_counts: dict[str, int] = {}
+        any_present = False
+        for row in rows:
+            by_type = row.get("attack_write_attempt_count_by_type")
+            if not isinstance(by_type, dict) or not by_type:
+                continue
+            any_present = True
+            admitted_by_type = row.get("attack_write_admitted_count_by_type", {}) or {}
+            retrieved_by_type = row.get("attack_retrieved_by_type", {}) or {}
+            false_by_type = row.get("false_belief_by_type", {}) or {}
+            for attack_type, n_attempt in by_type.items():
+                attempts[attack_type] = attempts.get(attack_type, 0) + int(n_attempt or 0)
+                admitted[attack_type] = admitted.get(attack_type, 0) + int(admitted_by_type.get(attack_type, 0) or 0)
+                retrieved_hits[attack_type] = retrieved_hits.get(attack_type, 0) + int(bool(retrieved_by_type.get(attack_type, False)))
+                false_belief_hits[attack_type] = false_belief_hits.get(attack_type, 0) + int(bool(false_by_type.get(attack_type, False)))
+                row_counts[attack_type] = row_counts.get(attack_type, 0) + 1
+        if not any_present:
+            continue
+        for attack_type in sorted(attempts):
+            n_rows = max(1, row_counts.get(attack_type, 0))
+            out_rows.append(
+                {
+                    "condition": COND_SHORT.get(cond, cond),
+                    "attack_type": attack_type,
+                    "attempts": attempts.get(attack_type, 0),
+                    "admitted": admitted.get(attack_type, 0),
+                    "write_admission_rate": admitted.get(attack_type, 0) / max(1, attempts.get(attack_type, 0)),
+                    "retrieval_rate": retrieved_hits.get(attack_type, 0) / n_rows,
+                    "false_belief_rate": false_belief_hits.get(attack_type, 0) / n_rows,
+                }
+            )
+    if out_rows:
+        write_csv(
+            out_dir / out_name,
+            out_rows,
+            ["condition", "attack_type", "attempts", "admitted", "write_admission_rate", "retrieval_rate", "false_belief_rate"],
+        )
+
+
+def build_benign_recall_table(results_dir: Path, out_dir: Path, *, filename: str, benchmark: str, split: str, out_name: str) -> None:
+    path = results_dir / filename
+    if not path.exists():
+        return
+    raw = _load_raw_rows(path, benchmark=benchmark, split=split)
+    out_rows: list[dict[str, Any]] = []
+    for cond, rows in raw.items():
+        attempts = sum(int(r.get("benign_write_attempt_count", 0) or 0) for r in rows)
+        admitted = sum(int(r.get("benign_write_admitted_count", 0) or 0) for r in rows)
+        support_attempts = sum(int(r.get("benign_answer_support_attempt_count", 0) or 0) for r in rows)
+        support_admitted = sum(int(r.get("benign_answer_support_admitted_count", 0) or 0) for r in rows)
+        if attempts == 0 and support_attempts == 0:
+            continue
+        out_rows.append(
+            {
+                "condition": COND_SHORT.get(cond, cond),
+                "benign_write_attempts": attempts,
+                "benign_write_admitted": admitted,
+                "benign_write_recall": admitted / max(1, attempts),
+                "benign_answer_support_attempts": support_attempts,
+                "benign_answer_support_admitted": support_admitted,
+                "benign_answer_support_recall": support_admitted / max(1, support_attempts),
+            }
+        )
+    if out_rows:
+        write_csv(
+            out_dir / out_name,
+            out_rows,
+            [
+                "condition",
+                "benign_write_attempts",
+                "benign_write_admitted",
+                "benign_write_recall",
+                "benign_answer_support_attempts",
+                "benign_answer_support_admitted",
+                "benign_answer_support_recall",
+            ],
+        )
+
+
 def scale(value: float, src_min: float, src_max: float, dst_min: float, dst_max: float) -> float:
     if src_max <= src_min:
         return (dst_min + dst_max) / 2
@@ -302,6 +474,8 @@ def build_schema_gap_report(results_dir: Path, out_dir: Path) -> None:
     for field in ("seed", "attack_type", "attack_types", "attack_write_attempt_count_by_type", "benign_write_admitted_count"):
         if field not in sample_raw:
             missing.append(field)
+    focused_main_present = (results_dir / PAPER_FILES["main_focus_schema"]).exists()
+    focused_browse_present = (results_dir / PAPER_FILES["browse_adv_focus_schema"]).exists()
     lines = [
         "# Schema Gap Report",
         "",
@@ -314,6 +488,9 @@ def build_schema_gap_report(results_dir: Path, out_dir: Path) -> None:
         lines.append(f"- `{field}`")
     lines.extend(
         [
+            "",
+            f"Focused richer-schema LoCoMo rerun present: `{focused_main_present}`",
+            f"Focused richer-schema browsing rerun present: `{focused_browse_present}`",
             "",
             "Implications:",
             "- true per-attack breakdown requires saved attack labels per QA row or per case unit",
@@ -377,6 +554,12 @@ def main() -> int:
     build_browsing_tables(args.results_dir, args.out_dir)
     build_attack_proxy_tables(args.results_dir, args.out_dir)
     build_systems_cost_table(args.results_dir, args.out_dir)
+    build_seed_stats_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="main_focus_seed_stats.csv")
+    build_seed_stats_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="browse_focus_seed_stats.csv")
+    build_per_attack_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="main_focus_per_attack_breakdown.csv")
+    build_per_attack_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="browse_focus_per_attack_breakdown.csv")
+    build_benign_recall_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="main_focus_benign_write_recall.csv")
+    build_benign_recall_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="browse_focus_benign_write_recall.csv")
     build_pareto_artifacts(args.results_dir, args.out_dir)
     build_schema_gap_report(args.results_dir, args.out_dir)
     build_submission_summary(args.results_dir, args.out_dir)

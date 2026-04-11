@@ -6,7 +6,7 @@
 
 ## Abstract
 
-Long-horizon agents increasingly rely on persistent memory, but persistent memory is also a durable attack surface. An adversarial observation that is admitted into memory can later be retrieved, consolidated, and reused long after the original interaction has ended. Existing defenses for memory poisoning are predominantly retrieval-time: they try to rank or filter memories after contamination has already entered the store. This leaves the memory state itself polluted, increases retrieval noise, wastes context budget, and allows unsupported observations to harden into derived beliefs. We study **write-time governed multimodal memory** as a distinct robustness problem. We present **SAGE-Mem**, a memory layer that mediates admission, promotion, and retrieval through typed memory partitions (`evidence`, `belief`, `control`), sufficiency-gated evidence-to-belief promotion, source-conditioned trust, anomaly detection, consistency checks, and provenance-aware retrieval. We evaluate on two settings: (i) a controlled long-horizon benchmark based on LoCoMo-10 with multimodal adversarial injections, including Visual Prompt Injection (VPI) and noisy/missing-modality stress; and (ii) an adversarially augmented MM-BrowseComp observation-trace benchmark with VLM-backed image observations. Our primary metrics follow the memory lifecycle: attack write admission, attack belief formation, retrieval contamination, false-belief retrieval, and benign completion under attack (BCU). On LoCoMo-based benchmarks, SAGE-Mem consistently drives write admission and retrieval contamination to near-zero, including perfect suppression on the main suite and VPI-only setting, while remaining robust under noisy/missing multimodal inputs. SAGE-Mem trails retrieval-time baselines on clean and attacked QA utility, so the result is an integrity--utility tradeoff rather than overall dominance. MM-BrowseComp further shows that generic tool trust fails under realistic browsing attacks. An initial browsing-context keyword prior (H5) reduces attack admission, but remains vulnerable on the harder combined browser benchmark. We therefore introduce **H6 — Adversarial Belief Revision (ABR)** — a browser-specific write-time layer that combines structured browser claim typing with page-group anomaly signals and channel provenance, without relying on correction-language keywords. On the 194-case grouped MM-BrowseComp benchmark, H6 achieves Write ASR=0.000 and Retrieval ASR=0.000 on the combined injection+adaptive attack track, while preserving near-clean utility (`BCU_poison=0.1512` vs `BCU_clean=0.1598`). A later semantic observation-group rerun preserves the same top-line result without changing the main mechanistic interpretation. The resulting picture is not “retrieval is obsolete,” but rather that **write-time governance is a necessary complement to retrieval-time filtering for multimodal agent memory**, especially when dependent multimodal evidence can masquerade as corroboration and browser-derived factual claims can bypass generic tool trust.
+Long-horizon agents increasingly rely on persistent memory, but persistent memory is also a durable attack surface. An adversarial observation that is admitted into memory can later be retrieved, consolidated, and reused long after the original interaction has ended. Existing defenses for memory poisoning are predominantly retrieval-time: they try to rank or filter memories after contamination has already entered the store. This leaves the memory state itself polluted, increases retrieval noise, wastes context budget, and allows unsupported observations to harden into derived beliefs. We study **write-time governed multimodal memory** as a distinct robustness problem. We present **SAGE-Mem**, a memory layer that mediates admission, promotion, and retrieval through typed memory partitions (`evidence`, `belief`, `control`), sufficiency-gated evidence-to-belief promotion, source-conditioned trust, anomaly detection, consistency checks, and provenance-aware retrieval. We evaluate on two settings: (i) a controlled long-horizon benchmark based on LoCoMo-10 with multimodal adversarial injections, including Visual Prompt Injection (VPI) and noisy/missing-modality stress; and (ii) an adversarially augmented MM-BrowseComp observation-trace benchmark with VLM-backed image observations. Our primary metrics follow the memory lifecycle: attack write admission, attack belief formation, retrieval contamination, false-belief retrieval, and benign completion under attack (BCU). On LoCoMo-based benchmarks, SAGE-Mem consistently drives write admission and retrieval contamination to near-zero, including perfect suppression on the main suite and VPI-only setting, while remaining robust under noisy/missing multimodal inputs. SAGE-Mem trails retrieval-time baselines on clean and attacked QA utility, so the result is an integrity--utility tradeoff rather than overall dominance. MM-BrowseComp further shows that generic tool trust fails under realistic browsing attacks. An initial browsing-specific extension, **SAGE-Mem-Browse**, reduces attack admission, but remains vulnerable on the harder combined browser benchmark. We therefore introduce **SAGE-Mem-BrowseGuard**, a browser-specific write-time layer that combines structured browser claim typing with page-group anomaly signals and channel provenance, without relying on correction-language keywords. On the 194-case grouped MM-BrowseComp benchmark, SAGE-Mem-BrowseGuard achieves Write ASR=0.000 and Retrieval ASR=0.000 on the combined injection+adaptive attack track, while preserving near-clean utility (`BCU_poison=0.1512` vs `BCU_clean=0.1598`). A later semantic observation-group rerun preserves the same top-line result without changing the main mechanistic interpretation. The resulting picture is not “retrieval is obsolete,” but rather that **write-time governance is a necessary complement to retrieval-time filtering for multimodal agent memory**, especially when dependent multimodal evidence can masquerade as corroboration and browser-derived factual claims can bypass generic tool trust.
 
 ---
 
@@ -64,13 +64,13 @@ We frame the paper around five explicit hypotheses.
   Under noisy or missing modalities, adaptive trust calibration should reduce over-quarantine relative to simpler write-time baselines while preserving low attack survival.
 
 - **H5: Browsing-context prior hypothesis.**
-  Browsing-derived external tool text is not equivalent to trusted internal tool output. A source-context-sensitive write prior should reduce realistic web-style correction-language attacks without globally lowering trust in all tool outputs. **Scope caveat:** the initial H5 implementation uses a keyword regex whose vocabulary overlaps with the benchmark attack text by construction. The H5 result (ASR=0) therefore holds only for correction-language-vocabulary adversaries, not for adversaries who paraphrase the same semantic intent without trigger words.
+  Browsing-derived external tool text is not equivalent to trusted internal tool output. A source-context-sensitive write prior should reduce realistic web-style correction-language attacks without globally lowering trust in all tool outputs. In the paper, this extension is instantiated as **SAGE-Mem-Browse**. **Scope caveat:** the initial browsing-prior implementation uses a keyword regex whose vocabulary overlaps with the benchmark attack text by construction. The resulting success therefore holds only for correction-language-vocabulary adversaries, not for adversaries who paraphrase the same semantic intent without trigger words.
 
-- **H6: Adversarial Belief Revision (ABR) hypothesis.**
-  A browser-specific, vocabulary-agnostic write-time layer should maintain robustness against adaptive adversaries who evade the H5 keyword filter. In the current design, ABR combines a **structured browser claim gate** for browser-sourced `qa_answer` writes with secondary page-group anomaly signals and channel provenance. H6 should reduce ASR on paraphrased correction attacks (`fact_overwrite_adaptive`) while preserving clean BCU close to the H5 level.
-  **Empirical result:** H6 is **fully supported** on the current benchmark. On the combined adversarial benchmark (`paper_mmadv_abr_group_v1`, n=194 cases, 388 attack write attempts including both correction-language and vocabulary-adaptive phrasings), H6 achieves Write ASR=0.000, Retrieval=0.000, ASR=0.000, BCU_poison=0.1512. The primary mechanism is the structured browser claim gate: browser-sourced `qa_answer` writes are blocked at the content-type level rather than by vocabulary matching. The gate fires an average of 2.0 times per case, blocking all 388/388 attack writes. Secondary page-group anomaly checks fire on 0.622 writes per case on average, providing additional within-page outlier coverage. For comparison, H5 admits 122/388 writes (Write ASR=0.314), which then drive retrieval contamination to 0.827 and BCU_poison down to 0.0275.
+- **H6: Browsing-guard hypothesis.**
+  A browser-specific, vocabulary-agnostic write-time layer should maintain robustness against adaptive adversaries who evade the H5 keyword filter. In the current design, **SAGE-Mem-BrowseGuard** combines a structured browser claim gate for browser-sourced `qa_answer` writes with secondary page-group anomaly signals and channel provenance. H6 should reduce ASR on paraphrased correction attacks (`fact_overwrite_adaptive`) while preserving clean BCU close to the SAGE-Mem-Browse level.
+  **Empirical result:** H6 is **fully supported** on the current benchmark. On the combined adversarial benchmark (`paper_mmadv_abr_group_v1`, n=194 cases, 388 attack write attempts including both correction-language and vocabulary-adaptive phrasings), SAGE-Mem-BrowseGuard achieves Write ASR=0.000, Retrieval=0.000, ASR=0.000, BCU_poison=0.1512. The primary mechanism is the structured browser claim gate: browser-sourced `qa_answer` writes are blocked at the content-type level rather than by vocabulary matching. The gate fires an average of 2.0 times per case, blocking all 388/388 attack writes. Secondary page-group anomaly checks fire on 0.622 writes per case on average, providing additional within-page outlier coverage. For comparison, SAGE-Mem-Browse admits 122/388 writes (Write ASR=0.314), which then drive retrieval contamination to 0.827 and BCU_poison down to 0.0275.
 
-The current empirical evidence strongly supports H1, H3, and H4 on LoCoMo-based settings, partially supports H2 through near-zero false-belief retrieval, supports H5 narrowly for correction-language vocabulary attacks with the co-design caveat disclosed, and **fully supports H6** — ABR with structured browser claim gate achieves Write ASR=0.000 and ASR=0.000 on the combined adversarial benchmark (both injection and adaptive attacks), with BCU_poison=0.1512 close to BCU_clean=0.1598.
+The current empirical evidence strongly supports H1, H3, and H4 on LoCoMo-based settings, partially supports H2 through near-zero false-belief retrieval, supports H5 narrowly for correction-language vocabulary attacks with the co-design caveat disclosed, and **fully supports H6** — SAGE-Mem-BrowseGuard achieves Write ASR=0.000 and ASR=0.000 on the combined adversarial benchmark (both injection and adaptive attacks), with BCU_poison=0.1512 close to BCU_clean=0.1598.
 
 ### Contributions
 
@@ -79,12 +79,12 @@ This paper makes five concrete contributions.
 1. **Problem framing:** We formulate multimodal agent-memory robustness as a write-boundary and belief-boundary problem, not only a retrieval-time ranking problem.
 2. **Architecture:** We present SAGE-Mem, a governed memory layer with typed memory, sufficiency-gated promotion, source-conditioned trust, anomaly detection, consistency checks, and provenance-aware retrieval.
 3. **Benchmark/evaluation design:** We define lifecycle metrics for write admission, belief formation, retrieval contamination, and downstream completion under attack, and apply them to both a controlled long-horizon benchmark and a browsing-style multimodal benchmark.
-4. **Empirical findings:** On LoCoMo-based settings, write-time governance strongly reduces attack admission and retrieval contamination, including on multimodal prompt injection and noisy/missing-modality robustness tests; on browsing-style MM-BrowseComp, generic tool trust fails. An initial keyword-prior defense (H5) achieves ASR=0 on correction-language vocabulary attacks, but we disclose a vocabulary co-design artifact that limits this claim to non-adaptive adversaries.
-5. **Adversarial Belief Revision (H6/ABR) with structured browser claim typing:** We identify the co-design limitation in H5, introduce `fact_overwrite_adaptive` as the adaptive evaluation variant, and propose ABR — a browser-specific, vocabulary-agnostic write-time layer that combines a **structured browser claim gate** with page-group anomaly signals and channel provenance. The gate blocks browser-sourced `qa_answer` writes by content type and source channel rather than vocabulary matching. Empirically, H6 achieves Write ASR=0.000 and ASR=0.000 on the combined adversarial benchmark (n=194, 388 attack write attempts, including both correction-language and adaptive paraphrased attacks), with BCU_poison=0.1512 ≈ BCU_clean=0.1598. A later semantic observation-group rerun preserves this result with only a negligible BCU change (0.1512 → 0.1529), strengthening confidence that the main finding is not a brittle artifact of one particular page-group scorer. The structural insight is that browser-sourced factual claims should not be promoted directly into answer-bearing memory.
+4. **Empirical findings:** On LoCoMo-based settings, write-time governance strongly reduces attack admission and retrieval contamination, including on multimodal prompt injection and noisy/missing-modality robustness tests; on browsing-style MM-BrowseComp, generic tool trust fails. An initial browsing extension, SAGE-Mem-Browse, achieves ASR=0 on correction-language vocabulary attacks, but we disclose a vocabulary co-design artifact that limits this claim to non-adaptive adversaries.
+5. **SAGE-Mem-BrowseGuard with structured browser claim typing:** We identify the co-design limitation in SAGE-Mem-Browse, introduce `fact_overwrite_adaptive` as the adaptive evaluation variant, and propose SAGE-Mem-BrowseGuard — a browser-specific, vocabulary-agnostic write-time layer that combines a structured browser claim gate with page-group anomaly signals and channel provenance. The gate blocks browser-sourced `qa_answer` writes by content type and source channel rather than vocabulary matching. Empirically, SAGE-Mem-BrowseGuard achieves Write ASR=0.000 and ASR=0.000 on the combined adversarial benchmark (n=194, 388 attack write attempts, including both correction-language and adaptive paraphrased attacks), with BCU_poison=0.1512 ≈ BCU_clean=0.1598. A later semantic observation-group rerun preserves this result with only a negligible BCU change (0.1512 → 0.1529), strengthening confidence that the main finding is not a brittle artifact of one particular page-group scorer. The structural insight is that browser-sourced factual claims should not be promoted directly into answer-bearing memory.
 
 The paper’s central claim is therefore deliberately narrow and defensible:
 
-> **Write-time governed multimodal memory is a distinct robustness primitive for agents. It strengthens memory-state integrity beyond what retrieval-time scoring alone can provide, especially under multimodal corruption, but it introduces a measurable utility tradeoff and requires source-context calibration for browsing-derived evidence. Honest evaluation requires testing against adaptive adversaries who know the defense vocabulary; keyword-based priors are bounded to non-adaptive adversaries. Vocabulary-agnostic write-time blocking via structured browser claim typing plus page-group anomaly checks (H6/ABR) achieves complete attack suppression (Write ASR=0.000, ASR=0.000) while preserving near-clean utility (BCU_poison=0.1512 vs BCU_clean=0.1598).**
+> **Write-time governed multimodal memory is a distinct robustness primitive for agents. It strengthens memory-state integrity beyond what retrieval-time scoring alone can provide, especially under multimodal corruption, but it introduces a measurable utility tradeoff and requires source-context calibration for browsing-derived evidence. Honest evaluation requires testing against adaptive adversaries who know the defense vocabulary; keyword-based priors are bounded to non-adaptive adversaries. Vocabulary-agnostic write-time blocking via structured browser claim typing plus page-group anomaly checks in SAGE-Mem-BrowseGuard achieves complete attack suppression (Write ASR=0.000, ASR=0.000) while preserving near-clean utility (BCU_poison=0.1512 vs BCU_clean=0.1598).**
 
 The paper therefore does not claim that SAGE-Mem dominates retrieval-time filtering on all metrics. A retrieval-time system can be the right engineering choice when the objective is maximum short-term QA accuracy under a permissive memory store. SAGE-Mem targets a different operating point: lower tolerance for persistent contamination, lower attack survival across memory lifecycle stages, and more explicit provenance over the beliefs that are allowed to guide later agent behavior.
 
@@ -265,8 +265,8 @@ The main LoCoMo suite includes:
 
 The MM-BrowseComp adversarial track uses two attack variants:
 
-- `fact_overwrite_injection`: correction-language phrasing ("Correction confirmed: ... has since been superseded. The previously stored value..."). This is the original H5 evaluation attack.
-- `fact_overwrite_adaptive` *(new)*: semantically equivalent payload using paraphrased vocabulary with no overlap with the `_BROWSER_CORRECTION_RE` detection regex ("Recent analysis of available records establishes...", "Authoritative sources reflect..."). This is the honest adaptive adversary evaluation for H6/ABR.
+- `fact_overwrite_injection`: correction-language phrasing ("Correction confirmed: ... has since been superseded. The previously stored value..."). This is the original SAGE-Mem-Browse evaluation attack.
+- `fact_overwrite_adaptive` *(new)*: semantically equivalent payload using paraphrased vocabulary with no overlap with the `_BROWSER_CORRECTION_RE` detection regex ("Recent analysis of available records establishes...", "Authoritative sources reflect..."). This is the honest adaptive adversary evaluation for SAGE-Mem-BrowseGuard.
 
 The distinction matters for honest evaluation: a defense that achieves ASR=0 on `fact_overwrite_injection` but not on `fact_overwrite_adaptive` has only demonstrated vocabulary interception, not semantic adversarial robustness.
 
@@ -340,6 +340,12 @@ The main LoCoMo result is the strongest evidence in the paper.
 This is the paper’s most defensible central result.
 
 This tradeoff is not an embarrassment to hide; it is the main systems result. In long-running agents, a memory design that maximizes short-term answer rate may still be unacceptable if it stores adversarial content that can later be consolidated, retrieved in a different context, or used as evidence for a future action. Conversely, a conservative write-time defense must account for the opportunity cost of rejected evidence. We therefore report both lifecycle integrity metrics and BCU, and avoid claiming that either operating point uniformly dominates the other.
+
+**Focused seed-aware rerun.** A later focused rerun (`paper_main_focus_schema_v2`) preserves the same qualitative conclusion while adding seed identifiers and per-attack write labels. On the poisoned main suite, MMA achieves `BCU_poison = 0.655 ± 0.015` across seeds with `ASR = 0.1583 ± 0.0176` and `Write ASR = 1.0 ± 0.0`. SAGE-Mem v2 achieves `BCU_poison = 0.4183 ± 0.0058`, `ASR = 0.0 ± 0.0`, and `Write ASR = 0.0042 ± 0.0072`. This strengthens the core claim that the zero-ASR result is stable rather than a single-seed artifact.
+
+**Per-attack interpretation.** The richer rerun shows that SAGE-Mem v2 completely blocks six of the seven logged main-suite attack families at write time (`adaptive_nl_evasion`, `constructor_launder`, `fact_overwrite_injection`, `label_gaming`, `vision_caption_injection`, and `visual_prompt_injection`). The only residual write admission is `ocr_injection`, with `Write ASR = 0.0333`, but even that attack does not survive to retrieval (`attack_retrieval_rate = 0.0`). By contrast, MMA admits every logged attack family with `Write ASR = 1.0`; downstream retrieval contamination then varies by family, with the highest rates on `fact_overwrite_injection` (`0.0850`), `adaptive_nl_evasion` (`0.0783`), and `visual_prompt_injection` (`0.0783`).
+
+**Benign-write recall explains the utility gap.** The same focused rerun shows that SAGE-Mem’s conservatism is real, not speculative. On the poisoned LoCoMo main suite, overall benign write recall is `0.0098` for SAGE-Mem v2 versus `1.0` for MMA; answer-supporting benign write recall is `0.0074` for SAGE-Mem v2 versus `1.0` for MMA. This is the clearest mechanistic explanation for why the integrity gain comes with a large utility cost: SAGE-Mem is not merely filtering attacks, it is rejecting most benign writes as well. The paper should present this as an explicit limitation and a primary target for future calibration work.
 
 ### 5.2 Visual Prompt Injection
 
@@ -419,8 +425,8 @@ We evaluate on a 194-case leakage-clean MM-BrowseComp pool (`paper_mmclean_abr_g
 | RSum | 0.1804 |
 | H1 | 0.1598 |
 | SAGE-Mem v2 (full) | 0.1495 |
-| SAGE-Mem v2 + browsing prior (H5) | 0.1598 |
-| **SAGE-Mem v2 + ABR (H6)** | **0.1598** |
+| SAGE-Mem-Browse | 0.1598 |
+| **SAGE-Mem-BrowseGuard** | **0.1598** |
 
 All methods achieve zero attack metrics on the clean split (no attacks injected). MMA leads on BCU_clean (0.2062), consistent with the LoCoMo pattern.
 
@@ -435,22 +441,28 @@ All methods achieve zero attack metrics on the clean split (no attacks injected)
 | RSum | 0.1065 | 0.6314 | 0.8247 | 0.8247 | 0.0000 |
 | H1 | 0.1031 | 0.4897 | 0.8316 | 0.8316 | 0.0000 |
 | SAGE-Mem v2 (full) | 0.1684 | 0.6314 | 0.5619 | 0.5619 | 0.0842 |
-| SAGE-Mem v2 + browsing prior (H5) | 0.0275 | 0.3144 | 0.8265 | 0.8265 | 0.0000 |
-| **SAGE-Mem v2 + ABR (H6)** | **0.1512** | **0.0000** | **0.0000** | **0.0000** | **0.0000** |
+| SAGE-Mem-Browse | 0.0275 | 0.3144 | 0.8265 | 0.8265 | 0.0000 |
+| **SAGE-Mem-BrowseGuard** | **0.1512** | **0.0000** | **0.0000** | **0.0000** | **0.0000** |
 
-**Key finding: H6 achieves complete attack blocking.** The structured browser claim gate fires on average 2.0 times per case (corresponding to the attack write attempts), blocking all 388/388 attack writes regardless of phrasing. H5 blocks only the correction-language vocabulary subset, admitting 122/388 writes (Write ASR=0.314); those admitted writes contaminate retrieval and drive ASR to 0.827.
+**Key finding: SAGE-Mem-BrowseGuard achieves complete attack blocking.** The structured browser claim gate fires on average 2.0 times per case (corresponding to the attack write attempts), blocking all 388/388 attack writes regardless of phrasing. SAGE-Mem-Browse blocks only the correction-language vocabulary subset, admitting 122/388 writes (Write ASR=0.314); those admitted writes contaminate retrieval and drive ASR to 0.827.
 
-**BCU under attack is preserved for H6 but not H5.** H6 BCU_poison=0.1512 ≈ BCU_clean=0.1598 — no utility degradation under attack. H5 BCU_poison=0.0275 — the admitted attack content occupies retrieval slots and crowds out useful evidence.
+**BCU under attack is preserved for SAGE-Mem-BrowseGuard but not SAGE-Mem-Browse.** SAGE-Mem-BrowseGuard BCU_poison=0.1512 ≈ BCU_clean=0.1598 — no utility degradation under attack. SAGE-Mem-Browse BCU_poison=0.0275 — the admitted attack content occupies retrieval slots and crowds out useful evidence.
 
 **MMA collapses under attack.** MMA writes all observations including attacks (Write ASR=1.0) and retrieves all of them (ASR=1.0), BCU_poison=0.000 — the worst performer despite its strong clean utility.
 
 **SAGE-Mem v2 (full, without browsing gate) partially reduces ASR** via trust scoring (0.562 vs 1.0 for MMA) but still admits most attacks. It uniquely produces false_belief_rate=0.0842 — attacks that are admitted form durable false beliefs at a measurable rate, confirming the paper's belief-formation hypothesis.
 
-**Semantic observation-group rerun does not materially change the conclusion.** A later EC2 rerun with the semantic observation-group optimization (`paper_mmclean_abr_sem_v1`, `paper_mmadv_abr_sem_v1`) preserves the core H6 result: clean BCU remains 0.1598, adversarial Write ASR remains 0.000, Retrieval remains 0.000, and BCU_poison changes only from 0.1512 to 0.1529. The main mechanistic interpretation therefore stays the same. The semantic rerun increases page-group firing (`group_divergence_fire_count_avg` 0.622 → 1.208) and outlier score magnitude (0.4568 → 0.5814), but `memory_conflict_score_avg` remains 0.0. We therefore treat the semantic rerun as a secondary ablation rather than a new canonical result: it confirms that stronger page-local signals are compatible with the defense, but it does not overturn the conclusion that the structured browser claim gate is the dominant driver of complete blocking.
+**Semantic observation-group rerun does not materially change the conclusion.** A later EC2 rerun with the semantic observation-group optimization (`paper_mmclean_abr_sem_v1`, `paper_mmadv_abr_sem_v1`) preserves the core SAGE-Mem-BrowseGuard result: clean BCU remains 0.1598, adversarial Write ASR remains 0.000, Retrieval remains 0.000, and BCU_poison changes only from 0.1512 to 0.1529. The main mechanistic interpretation therefore stays the same. The semantic rerun increases page-group firing (`group_divergence_fire_count_avg` 0.622 → 1.208) and outlier score magnitude (0.4568 → 0.5814), but `memory_conflict_score_avg` remains 0.0. We therefore treat the semantic rerun as a secondary ablation rather than a new canonical result: it confirms that stronger page-local signals are compatible with the defense, but it does not overturn the conclusion that the structured browser claim gate is the dominant driver of complete blocking.
 
-#### Critical limitation of the H5 result: vocabulary co-design
+**Focused seed-aware browsing rerun.** A later focused adversarial rerun (`paper_mmadv_focus_schema_v2`) adds seed identifiers and per-attack write labels while preserving the SAGE-Mem-Browse / SAGE-Mem-BrowseGuard ranking. SAGE-Mem-BrowseGuard achieves `BCU_poison = 0.1529 ± 0.0030`, `ASR = 0.0 ± 0.0`, and `Write ASR = 0.0 ± 0.0` across seeds. SAGE-Mem-Browse remains unstable under adaptive attack with `BCU_poison = 0.0206 ± 0.0`, `ASR = 0.8299 ± 0.0186`, and `Write ASR = 0.3333 ± 0.0074`. Generic SAGE-Mem without browser-specific claim typing is more stable than SAGE-Mem-Browse on utility (`BCU_poison = 0.1753 ± 0.0052`) but still heavily contaminated (`ASR = 0.5515 ± 0.0052`, `Write ASR = 0.6452 ± 0.0147`).
 
-The H5 ASR=0 result on `fact_overwrite_injection` requires explicit disclosure. The `_BROWSER_CORRECTION_RE` detection regex contains these phrases:
+**Per-attack browsing breakdown.** The focused rerun makes the SAGE-Mem-Browse / SAGE-Mem-BrowseGuard difference precise. SAGE-Mem-Browse blocks `fact_overwrite_injection` completely (`Write ASR = 0.0`, retrieval `0.0`) but fails on `fact_overwrite_adaptive` (`Write ASR = 0.6667`, retrieval `0.8299`). SAGE-Mem-BrowseGuard blocks both attack variants completely (`Write ASR = 0.0`, retrieval `0.0` for both). Generic SAGE-Mem admits both attack variants at high rates (`Write ASR = 0.6306` on `fact_overwrite_injection`, `0.6598` on `fact_overwrite_adaptive`) and shows non-zero false-belief formation on both (`0.0997` and `0.0911`, respectively). This is exactly the mathematically grounded claim we want: SAGE-Mem-Browse is a vocabulary-bound browser prior, whereas SAGE-Mem-BrowseGuard is robust to both the original and paraphrased overwrite attack under the current benchmark construction.
+
+**Benign-write retention on browsing.** Unlike the main LoCoMo setting, the browsing-focused rerun shows that SAGE-Mem-BrowseGuard does not merely win by blocking everything. Overall benign write recall is `0.2179` for SAGE-Mem-BrowseGuard versus `0.2077` for SAGE-Mem-Browse, and answer-supporting benign write recall is `0.2560` for SAGE-Mem-BrowseGuard versus `0.2478` for SAGE-Mem-Browse. This matters for the paper because it shows the BrowseGuard gain is not simply stricter rejection; the structured browser claim gate improves attack blocking while preserving slightly more benign evidence than the keyword prior.
+
+#### Critical limitation of the SAGE-Mem-Browse result: vocabulary co-design
+
+The SAGE-Mem-Browse ASR=0 result on `fact_overwrite_injection` requires explicit disclosure. The `_BROWSER_CORRECTION_RE` detection regex contains these phrases:
 
 ```
 "correction confirmed" | "superseded" | "previously stored" | ...
@@ -465,15 +477,15 @@ value was based on an early draft and has since been superseded."
 
 **The attack text and the regex share vocabulary by construction.** This is not a failure of scientific intent — source-context calibration for correction-language browsing attacks is a real and valid defense — but the measurement conflates two things: (i) whether the defense mechanism is sound, and (ii) whether the benchmark attack is adaptive. The correct interpretation is:
 
-> H5 (keyword prior) achieves ASR=0 on correction-language-vocabulary attacks arriving via browser source context. Against an adaptive adversary who uses semantically equivalent but lexically different phrasing, H5 provides no protection.
+> SAGE-Mem-Browse achieves ASR=0 on correction-language-vocabulary attacks arriving via browser source context. Against an adaptive adversary who uses semantically equivalent but lexically different phrasing, SAGE-Mem-Browse provides no protection.
 
-This limitation is why H6/ABR is a necessary contribution rather than an optional extension.
+This limitation is why SAGE-Mem-BrowseGuard is a necessary contribution rather than an optional extension.
 
-#### H6/ABR design rationale
+#### SAGE-Mem-BrowseGuard design rationale
 
-H6 is best understood as a two-layer browser-specific write policy. The first layer is a structured browser claim gate: browser-sourced observations are allowed to enter evidence memory, but browser text is not allowed to directly write `qa_answer` claims into durable answer-bearing memory. The second layer adds page-local anomaly signals over grouped observations from the same page plus channel-history features. This combination is deterministic and LLM-free.
+SAGE-Mem-BrowseGuard is best understood as a two-layer browser-specific write policy. The first layer is a structured browser claim gate: browser-sourced observations are allowed to enter evidence memory, but browser text is not allowed to directly write `qa_answer` claims into durable answer-bearing memory. The second layer adds page-local anomaly signals over grouped observations from the same page plus channel-history features. This combination is deterministic and LLM-free.
 
-The secondary ABR signals are:
+The secondary BrowseGuard signals are:
 
 | Signal | Weight | Mechanism | Adaptive-robust? |
 |--------|--------|-----------|-----------------|
@@ -489,11 +501,11 @@ A moving-target threshold jitter (±`abr_noise_scale` per SAGEMemory instance) f
 1. The clean benchmark is difficult: all methods remain below 0.22 BCU, reflecting the genuine difficulty of MM-BrowseComp, not a defense artifact.
 2. Generic tool trust is insufficient: MMA, H1/H2/H3, and generic SAGE-Mem v2 all admit the browsing-style correction attack at write time (Write ASR ≥ 0.63).
 3. Generic SAGE-Mem v2 reduces retrieval contamination relative to MMA (0.562 vs 1.000) via trust scoring, but admits most attacks and uniquely produces false_belief_rate=0.084 — confirming the belief-formation hypothesis.
-4. H5 (keyword prior) reduces Write ASR to 0.314 on the combined track, blocking the injection phrasing but not the adaptive paraphrased variant. The admitted 31% drive ASR to 0.827 and collapse BCU_poison to 0.028.
-5. **H6/ABR achieves complete blocking, but the dominant mechanism is structured claim typing.** Write ASR=0.000, ASR=0.000, BCU_poison=0.1512 ≈ BCU_clean=0.1598 on the canonical grouped run. The structured browser claim gate fires 2.0 times per case on average, matching the two injected browser overwrite attempts per case. Group-divergence quarantine fires 0.622 times per case on average on the canonical grouped run and 1.208 on the later semantic rerun, but `memory_conflict_score_avg` remains 0.0 in both. The correct interpretation is therefore browser claim typing plus secondary within-page anomaly support, not proof that page-group semantic contradiction scoring alone solved the task. This is a strength, not a weakness, for the paper: the result is achieved by a simple, inspectable, deployment-relevant memory policy rather than by an opaque semantic verifier that would be harder to trust operationally.
-6. **Write-time governance principle is empirically supported for H6.** false_belief_rate=0.000 for H6 (and H5) where SAGEv2 base has 0.084. Zero attack admission prevents false belief hardening entirely.
+4. SAGE-Mem-Browse reduces Write ASR to 0.314 on the combined track, blocking the injection phrasing but not the adaptive paraphrased variant. The admitted 31% drive ASR to 0.827 and collapse BCU_poison to 0.028.
+5. **SAGE-Mem-BrowseGuard achieves complete blocking, but the dominant mechanism is structured claim typing.** Write ASR=0.000, ASR=0.000, BCU_poison=0.1512 ≈ BCU_clean=0.1598 on the canonical grouped run. The structured browser claim gate fires 2.0 times per case on average, matching the two injected browser overwrite attempts per case. Group-divergence quarantine fires 0.622 times per case on average on the canonical grouped run and 1.208 on the later semantic rerun, but `memory_conflict_score_avg` remains 0.0 in both. The correct interpretation is therefore browser claim typing plus secondary within-page anomaly support, not proof that page-group semantic contradiction scoring alone solved the task. This is a strength, not a weakness, for the paper: the result is achieved by a simple, inspectable, deployment-relevant memory policy rather than by an opaque semantic verifier that would be harder to trust operationally.
+6. **Write-time governance principle is empirically supported for SAGE-Mem-BrowseGuard.** false_belief_rate=0.000 for SAGE-Mem-BrowseGuard (and 0.000 for SAGE-Mem-Browse) where base SAGE-Mem has 0.084. Zero attack admission prevents false belief hardening entirely.
 
-**Paper implication.** MM-BrowseComp is a valid external stress test for source-context calibration. The H5 result demonstrates that keyword priors are bounded: they close the gap on vocabulary attacks but fail against adaptive adversaries. H6 demonstrates that content-type + source-channel classification is more robust than vocabulary matching. The honest contribution is: (i) identifying that generic tool trust fails for browser evidence, (ii) scoping H5 as vocabulary-specific, (iii) demonstrating that structured claim typing (H6) achieves vocabulary-agnostic blocking, and (iv) providing lifecycle metrics that separate write time, belief time, and retrieval time. The paper does not claim all browsing or web attacks are solved — hidden instructions, multi-page contradictions, and login-gated evidence remain outside current evidence.
+**Paper implication.** MM-BrowseComp is a valid external stress test for source-context calibration. The SAGE-Mem-Browse result demonstrates that keyword priors are bounded: they close the gap on vocabulary attacks but fail against adaptive adversaries. SAGE-Mem-BrowseGuard demonstrates that content-type + source-channel classification is more robust than vocabulary matching. The honest contribution is: (i) identifying that generic tool trust fails for browser evidence, (ii) scoping SAGE-Mem-Browse as vocabulary-specific, (iii) demonstrating that structured claim typing in SAGE-Mem-BrowseGuard achieves vocabulary-agnostic blocking, and (iv) providing lifecycle metrics that separate write time, belief time, and retrieval time. The paper does not claim all browsing or web attacks are solved — hidden instructions, multi-page contradictions, and login-gated evidence remain outside current evidence.
 
 ---
 
@@ -503,7 +515,7 @@ The strongest supported contribution is not “SAGE-Mem is the best memory syste
 
 The strongest supported claim is:
 
-> **SAGE-Mem provides substantially stronger write-time containment and memory-state integrity than retrieval-time filtering on controlled long-horizon multimodal memory benchmarks, especially under multimodal prompt injection and noisy/missing modalities, albeit at a utility cost relative to MMA. On MM-BrowseComp, source-context calibration is necessary: keyword-based priors (H5) are bounded to correction-language-vocabulary adversaries (Write ASR=0.314 on the combined track, ASR=0.827). H6/ABR with structured browser claim typing and page-group anomaly support achieves complete blocking (Write ASR=0.000, ASR=0.000, BCU_poison=0.1512 ≈ BCU_clean=0.1598) by classifying observations by content type and source channel rather than vocabulary.**
+> **SAGE-Mem provides substantially stronger write-time containment and memory-state integrity than retrieval-time filtering on controlled long-horizon multimodal memory benchmarks, especially under multimodal prompt injection and noisy/missing modalities, albeit at a utility cost relative to MMA. On MM-BrowseComp, source-context calibration is necessary: SAGE-Mem-Browse is bounded to correction-language-vocabulary adversaries (Write ASR=0.314 on the combined track, ASR=0.827). SAGE-Mem-BrowseGuard with structured browser claim typing and page-group anomaly support achieves complete blocking (Write ASR=0.000, ASR=0.000, BCU_poison=0.1512 ≈ BCU_clean=0.1598) by classifying observations by content type and source channel rather than vocabulary.**
 
 This claim is supported by:
 - zero write admission and zero retrieval contamination on the LoCoMo main suite,
@@ -511,15 +523,15 @@ This claim is supported by:
 - near-zero survival under noisy/missing-modality stress,
 - lower false-belief retrieval than simpler baselines,
 - a meaningful Bayes calibration effect in the multimodal robustness setting,
-- H5 ASR reduction on correction-language vocabulary attacks (scoped honestly; Write ASR=0.314 on combined track),
-- **H6 Write ASR=0.000 and ASR=0.000 on the combined adversarial track** (n=194, 388 attack writes including both injection and adaptive attacks), with BCU_poison=0.1512 ≈ BCU_clean=0.1598,
-- Write-time principle fully validated: false_belief_rate=0.000 for H6 (and 0.000 for H5) vs 0.084 for base SAGEv2, confirming that write-time blocking prevents false belief hardening.
+- SAGE-Mem-Browse ASR reduction on correction-language vocabulary attacks (scoped honestly; Write ASR=0.314 on combined track),
+- **SAGE-Mem-BrowseGuard achieves Write ASR=0.000 and ASR=0.000 on the combined adversarial track** (n=194, 388 attack writes including both injection and adaptive attacks), with BCU_poison=0.1512 ≈ BCU_clean=0.1598,
+- Write-time principle fully validated: false_belief_rate=0.000 for SAGE-Mem-BrowseGuard (and 0.000 for SAGE-Mem-Browse) vs 0.084 for base SAGE-Mem, confirming that write-time blocking prevents false belief hardening.
 
 What the results do **not** support:
 - that SAGE-Mem beats MMA overall on clean utility,
 - that every v2 submodule is independently validated on the main suite,
 - that all browsing or web attacks are handled beyond the content-type/source-channel scope of the structured claim gate,
-- that H5 alone is robust to adaptive adversaries who paraphrase around correction-language vocabulary (H5 admits 31% of the combined attack track, ASR=0.827).
+- that SAGE-Mem-Browse alone is robust to adaptive adversaries who paraphrase around correction-language vocabulary (it admits 31% of the combined attack track, ASR=0.827).
 
 ### Pareto Frontier (Security–Utility Tradeoff)
 
@@ -535,6 +547,12 @@ MMA achieves higher benign utility (BCU 0.68) by storing all observations (634 i
 
 The paper should present this as a Pareto plot with BCU poison on the y-axis and Write ASR on the x-axis, where MMA is the top-right point (high utility, high attack admission) and SAGE-Mem is the bottom-left point (lower utility, zero admission).
 
+**Figure artifact.**
+- `analysis/paper_submission_ready/pareto_locomo_bcu_vs_write_asr.svg`
+
+**Suggested caption.**
+*Figure X: Integrity--utility Pareto frontier on the main LoCoMo benchmark. Retrieval-time MMA occupies the high-utility/high-admission region, while SAGE-Mem v2 occupies the low-admission region with reduced benign completion under attack. The figure makes explicit that the main empirical story is a frontier tradeoff, not uniform dominance.*
+
 ### Submission-Ready Analysis Artifacts
 
 To make the integrity--utility story reviewer-legible, we generated submission-ready analysis artifacts directly from the frozen local result set. These include:
@@ -542,10 +560,10 @@ To make the integrity--utility story reviewer-legible, we generated submission-r
 - a **LoCoMo Pareto plot** of `BCU poison` versus `Write ASR`,
 - an **MM-BrowseComp Pareto plot** of `BCU poison` versus `Write ASR`,
 - a **systems-cost table** summarizing average write latency, retrieve latency, and memory footprint on the browsing benchmark,
-- a **browsing comparison table** for the canonical grouped H5/H6 pair and the later semantic observation-group rerun,
+- a **browsing comparison table** for the canonical grouped SAGE-Mem-Browse / SAGE-Mem-BrowseGuard pair and the later semantic observation-group rerun,
 - an **attack-proxy breakdown** for the main LoCoMo suite using saved retrieval-side attack indicators (`multimodal_attack_retrieval_rate`, `fact_overwrite_attack_retrieval_rate`, `control_flow_attack_retrieval_rate`, `answer_relevant_attack_retrieval_rate`).
 
-These artifacts strengthen the paper in two ways. First, they make the utility--integrity frontier explicit rather than implicit in tables. Second, they clarify that the browsing result is not a single-point anecdote: H6 is simultaneously better than H5 on write admission, retrieval contamination, and downstream BCU under attack, while remaining close to H5 on clean utility.
+These artifacts strengthen the paper in two ways. First, they make the utility--integrity frontier explicit rather than implicit in tables. Second, they clarify that the browsing result is not a single-point anecdote: SAGE-Mem-BrowseGuard is simultaneously better than SAGE-Mem-Browse on write admission, retrieval contamination, and downstream BCU under attack, while remaining close to SAGE-Mem-Browse on clean utility.
 
 The concrete submission bundle is:
 
@@ -559,10 +577,19 @@ The concrete submission bundle is:
 - `analysis/paper_submission_ready/pareto_browsing_bcu_vs_write_asr.svg`
 - `analysis/paper_submission_ready/schema_gap_report.md`
 
+For the browsing section, the main figure artifact is:
+
+- `analysis/paper_submission_ready/pareto_browsing_bcu_vs_write_asr.svg`
+
+**Suggested caption.**
+*Figure Y: Integrity--utility Pareto frontier on grouped MM-BrowseComp. SAGE-Mem-Browse reduces attack admission relative to generic SAGE-Mem but remains highly contaminated at retrieval time. SAGE-Mem-BrowseGuard moves to the zero-admission, zero-retrieval-contamination corner while preserving near-clean utility, supporting the claim that browser-specific write-time claim governance is more robust than a keyword prior alone.*
+
 There is also an important negative result in the analysis pipeline itself. The frozen canonical raws do **not** include per-row `seed` or `attack_type`, so true seed-level confidence intervals and exact per-attack tables cannot be recovered retrospectively from the saved artifacts. We therefore distinguish between:
 
 - **submission-ready analysis we can support now** from the frozen artifacts, and
 - **targeted future reruns** needed for true per-attack and seed-variance reporting.
+
+A later focused schema rerun on the browsing adversarial track (`paper_targeted_browse_adv_schema_v1`) confirms the canonical SAGE-Mem-BrowseGuard result numerically (`BCU_poison=0.1495`, `Write ASR=0.0000`, `ASR=0.0000` for the 4-condition focused comparison), but it also exposes a remaining engineering gap: the current output payload still persists benchmark summaries rather than the enriched row-level fields needed for exact per-attack and seed-variance analysis. This is useful publication-wise because it strengthens the central browsing claim without changing it, while also defining a precise next engineering step for a camera-ready version.
 
 This distinction is scientifically important. Rather than reverse-engineering unsupported breakdowns from incomplete logs, we preserve the paper’s credibility by reporting only what is actually recoverable from the saved data and treating richer variance/per-attack tables as targeted future work.
 
@@ -577,8 +604,8 @@ The novelty is not simply “another write-time filter.” The defensible novelt
 1. **Lifecycle evaluation for agent memory:** write admission, belief formation, retrieval contamination, and downstream completion are measured separately.
 2. **Multimodal dependence modeling:** OCR and caption outputs from the same image are treated as dependent evidence rather than rewarded as independent corroboration.
 3. **Typed memory with sufficiency-gated belief promotion:** the system distinguishes observation storage from durable belief formation.
-4. **Honest benchmarking methodology:** we explicitly introduce an adaptive attack variant (`fact_overwrite_adaptive`) to prevent vocabulary co-design artifacts from inflating defense results, and disclose the limitation of the H5 keyword prior.
-5. **Adversarial Belief Revision (ABR/H6):** a browser-specific, vocabulary-agnostic write-time layer combining structured browser claim typing, page-group anomaly scoring, corroboration deficit, and channel history. In the current benchmark, the structured claim gate is the dominant mechanism and should be described as such.
+4. **Honest benchmarking methodology:** we explicitly introduce an adaptive attack variant (`fact_overwrite_adaptive`) to prevent vocabulary co-design artifacts from inflating defense results, and disclose the limitation of the SAGE-Mem-Browse keyword prior.
+5. **SAGE-Mem-BrowseGuard:** a browser-specific, vocabulary-agnostic write-time layer combining structured browser claim typing, page-group anomaly scoring, corroboration deficit, and channel history. In the current benchmark, the structured claim gate is the dominant mechanism and should be described as such.
 
 ### 7.2 What reviewers may attack
 
@@ -590,13 +617,13 @@ The novelty is not simply “another write-time filter.” The defensible novelt
    - The LoCoMo multimodal setting is a controlled extension, not a fully natural multimodal agent log.
    - Response: acknowledged in limitations. The benchmark is presented as controlled, not naturalistic.
 
-3. **H5 vocabulary co-design (benchmarkmaxxing concern).**
+3. **SAGE-Mem-Browse vocabulary co-design (benchmarkmaxxing concern).**
    - A reviewer may correctly observe that the `fact_overwrite_injection` attack text and the `_BROWSER_CORRECTION_RE` regex share vocabulary by construction, making ASR=0 an artifact rather than evidence of semantic robustness.
-   - Response: **we disclose this explicitly.** The H5 result is scoped to correction-language-vocabulary adversaries. We introduce `fact_overwrite_adaptive` and ABR (H6) precisely to close this gap. A paper that suppressed this limitation would be dishonest; we instead make the limitation a research contribution by proposing and evaluating the fix.
+   - Response: **we disclose this explicitly.** The SAGE-Mem-Browse result is scoped to correction-language-vocabulary adversaries. We introduce `fact_overwrite_adaptive` and SAGE-Mem-BrowseGuard precisely to close this gap. A paper that suppressed this limitation would be dishonest; we instead make the limitation a research contribution by proposing and evaluating the fix.
 
-4. **ABR and H6 results: positive finding with honest mechanism disclosure.**
-   - H6/ABR achieves Write ASR=0.000 and ASR=0.000 on the combined adversarial track, strictly outperforming H5 (Write ASR=0.314, ASR=0.827).
-   - Response: the H6 result is genuinely strong. We disclose the mechanism: the structured browser claim gate — which blocks browser-sourced `qa_answer` writes by content type rather than vocabulary — is the primary driver of complete blocking, with page-group anomaly signals providing secondary defense-in-depth. A reviewer may ask: "is this just a hard gate, not a scoring system?" We respond: yes, a hard content-type gate is architecturally the right design for browser-sourced factual claims. The contribution is (i) identifying that content-type classification is more robust than vocabulary matching, (ii) adding within-page anomaly structure rather than treating all browser text identically, and (iii) empirically validating this against the adaptive adversary that defeats H5. The gate is disclosed explicitly and is not presented as a black-box magic fix.
+4. **SAGE-Mem-BrowseGuard result: positive finding with honest mechanism disclosure.**
+   - SAGE-Mem-BrowseGuard achieves Write ASR=0.000 and ASR=0.000 on the combined adversarial track, strictly outperforming SAGE-Mem-Browse (Write ASR=0.314, ASR=0.827).
+   - Response: the SAGE-Mem-BrowseGuard result is genuinely strong. We disclose the mechanism: the structured browser claim gate — which blocks browser-sourced `qa_answer` writes by content type rather than vocabulary — is the primary driver of complete blocking, with page-group anomaly signals providing secondary defense-in-depth. A reviewer may ask: "is this just a hard gate, not a scoring system?" We respond: yes, a hard content-type gate is architecturally the right design for browser-sourced factual claims. The contribution is (i) identifying that content-type classification is more robust than vocabulary matching, (ii) adding within-page anomaly structure rather than treating all browser text identically, and (iii) empirically validating this against the adaptive adversary that defeats SAGE-Mem-Browse. The gate is disclosed explicitly and is not presented as a black-box magic fix.
 
 5. **Submodule ablations on the main suite.**
    - The main suite does not separate Bayes/anomaly/consistency strongly.
@@ -614,9 +641,9 @@ The current draft preempts all these concerns by disclosing them explicitly rath
 - **Trusted orchestration assumption.** Source labels are assumed correct.
 - **Utility tradeoff.** Retrieval-time baselines preserve more immediate QA utility. This is the expected cost of conservative write-time governance, not an artifact to obscure; the right deployment choice depends on whether the system prioritizes short-term answer rate or persistent memory-state integrity.
 - **Controlled versus naturalistic multimodality.** LoCoMo is controlled; MM-BrowseComp is more realistic but still limited by trace coverage and VLM caption quality.
-- **H5 vocabulary co-design.** The `fact_overwrite_injection` attack text and the `_BROWSER_CORRECTION_RE` regex share overlapping vocabulary by construction ("Correction confirmed", "superseded", "previously stored" appear in both). The H5 ASR=0 result is therefore bounded to correction-language-vocabulary adversaries. We disclose this explicitly and introduce H6/ABR as the vocabulary-agnostic extension.
-- **H6/ABR scope: structured claim gate covers browser-sourced `qa_answer` writes.** H6 achieves Write ASR=0.000 on the combined adversarial track via the structured browser claim gate, which blocks browser-sourced `qa_answer` writes by content-type classification. The gate's scope is bounded: it covers browser-channel factual assertion writes, the primary MM-BrowseComp attack surface in our current construction. Attacks that write to other memory types (e.g., `evidence`, `control`) or arrive on non-browser channels may not trigger the gate and would rely on the secondary ABR scoring and trust thresholds. The later semantic observation-group rerun increases page-local anomaly sensitivity without changing the core outcome, which reinforces this scope judgment: stronger page-local signals are additive, but the main result is still driven by the structured gate. Hidden HTML instructions, multi-page contradictions, and login-gated evidence remain outside the gate's classification scope and outside current empirical evidence.
-- **Browsing-specific scope.** Even with ABR, the defense targets browser-channel correction-style attacks. Broader web attacks — hidden HTML instructions, multi-page contradictions, login-gated evidence, video-only answers — remain outside current evidence.
+- **SAGE-Mem-Browse vocabulary co-design.** The `fact_overwrite_injection` attack text and the `_BROWSER_CORRECTION_RE` regex share overlapping vocabulary by construction ("Correction confirmed", "superseded", "previously stored" appear in both). The SAGE-Mem-Browse ASR=0 result is therefore bounded to correction-language-vocabulary adversaries. We disclose this explicitly and introduce SAGE-Mem-BrowseGuard as the vocabulary-agnostic extension.
+- **SAGE-Mem-BrowseGuard scope: structured claim gate covers browser-sourced `qa_answer` writes.** SAGE-Mem-BrowseGuard achieves Write ASR=0.000 on the combined adversarial track via the structured browser claim gate, which blocks browser-sourced `qa_answer` writes by content-type classification. The gate's scope is bounded: it covers browser-channel factual assertion writes, the primary MM-BrowseComp attack surface in our current construction. Attacks that write to other memory types (e.g., `evidence`, `control`) or arrive on non-browser channels may not trigger the gate and would rely on the secondary BrowseGuard scoring and trust thresholds. The later semantic observation-group rerun increases page-local anomaly sensitivity without changing the core outcome, which reinforces this scope judgment: stronger page-local signals are additive, but the main result is still driven by the structured gate. Hidden HTML instructions, multi-page contradictions, and login-gated evidence remain outside the gate's classification scope and outside current empirical evidence.
+- **Browsing-specific scope.** Even with SAGE-Mem-BrowseGuard, the defense targets browser-channel correction-style attacks. Broader web attacks — hidden HTML instructions, multi-page contradictions, login-gated evidence, video-only answers — remain outside current evidence.
 - **Module separability is setting-dependent.** Bayes is justified most clearly under noisy/missing multimodal evidence, not the main suite.
 - **Behavioral LLM evaluation is secondary.** It is not the core evidence for this paper.
 
@@ -632,17 +659,19 @@ The **most important benchmark next step** is to broaden the browsing attack sur
 
 ### High priority for acceptance
 
-1. ~~**ABR + adaptive attack EC2 run** *(blocking for H6 claim)*~~ **COMPLETE — POSITIVE RESULT.**
+1. ~~**BrowseGuard + adaptive attack EC2 run** *(blocking for browsing-guard claim)*~~ **COMPLETE — POSITIVE RESULT.**
    - Run `paper_mmadv_abr_group_v1` completed (n=194 cases, 388 attack write attempts, both `fact_overwrite_injection` + `fact_overwrite_adaptive` combined).
-   - **Finding: H6 (SAGEMemV2_ABR) achieves Write ASR=0.000, ASR=0.000, BCU_poison=0.1512.** The structured browser claim gate blocks all 388 attack writes regardless of vocabulary. H5 (BrowsingTrustPrior) admits 122/388 writes (Write ASR=0.314) and achieves ASR=0.827. H6 strictly dominates H5.
-   - **Implication**: H6 hypothesis is fully supported. The structural insight: content-type + source-channel classification is more robust than keyword matching. See Section 5.5.
+   - **Finding: SAGE-Mem-BrowseGuard (`SAGEMemV2_ABR`) achieves Write ASR=0.000, ASR=0.000, BCU_poison=0.1512.** The structured browser claim gate blocks all 388 attack writes regardless of vocabulary. SAGE-Mem-Browse (`BrowsingTrustPrior`) admits 122/388 writes (Write ASR=0.314) and achieves ASR=0.827. SAGE-Mem-BrowseGuard strictly dominates SAGE-Mem-Browse.
+   - **Implication**: the browsing-guard hypothesis is fully supported. The structural insight: content-type + source-channel classification is more robust than keyword matching. See Section 5.5.
 
-2. **Per-attack breakdown on the main LoCoMo suite.**
+2. ~~**Per-attack breakdown on the main LoCoMo suite.**~~ **COMPLETE — FOCUSED RERUN ADDED.**
    - Why: isolates where SAGE-Mem wins and where it merely ties.
+   - Focused richer-schema rerun now shows that SAGE-Mem blocks 6/7 logged attack families completely at write time; only `ocr_injection` retains residual write admission (`0.0333`), and even that residual does not survive retrieval.
    - Claim supported: robustness is not driven by only one attack family.
 
-3. **Variance / confidence intervals across seeds.**
+3. ~~**Variance / confidence intervals across seeds.**~~ **COMPLETE — FOCUSED RERUN ADDED.**
    - Why: the workshop audience will care whether gains are stable.
+   - Focused seed-aware reruns now show stability for the main claims: SAGE-Mem on LoCoMo main has `BCU_poison=0.4183 ± 0.0058`, `ASR=0.0 ± 0.0`; SAGE-Mem-BrowseGuard on browsing has `BCU_poison=0.1529 ± 0.0030`, `ASR=0.0 ± 0.0`.
    - Claim supported: robustness improvements are not seed artifacts.
 
 4. **Pareto plot: BCU poison vs attack write admission or retrieval contamination.**
@@ -657,13 +686,13 @@ The **most important benchmark next step** is to broaden the browsing attack sur
 
 ### Nice to have
 
-6. **Cost/latency table for guard usage.**
+6. ~~**Cost/latency table for guard usage.**~~ **COMPLETE — ANALYSIS BUNDLE ADDED.**
    - Why: SCALE workshop reviewers may care about systems practicality.
 
 7. **Length sensitivity / retrieval-budget sensitivity.**
    - Why: would strengthen the claim that cleaner memory reduces downstream burden.
 
-8. ~~**H5 vs H6 ablation table on `fact_overwrite_injection`**~~ **Superseded by combined run.** The `paper_mmadv_abr_group_v1` combined run already shows H6 strictly better than H5 on both attack types simultaneously (H6 Write ASR=0.000 vs H5 Write ASR=0.314). A separate injection-only ablation is no longer needed.
+8. ~~**SAGE-Mem-Browse vs SAGE-Mem-BrowseGuard ablation table on `fact_overwrite_injection`**~~ **Superseded by combined run.** The `paper_mmadv_abr_group_v1` combined run already shows SAGE-Mem-BrowseGuard strictly better than SAGE-Mem-Browse on both attack types simultaneously (Write ASR=0.000 vs 0.314). A separate injection-only ablation is no longer needed.
 
 9. **Full multimodal semantic verifier as a follow-on method, not a retroactive claim.**
    - Why: the semantic observation-group rerun shows that stronger page-local signals are compatible with the current defense, but it does not yet validate semantic contradiction resolution as the main mechanism.

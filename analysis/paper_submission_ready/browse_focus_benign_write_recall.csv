@@ -1,0 +1,5 @@
+condition,benign_write_attempts,benign_write_admitted,benign_write_recall,benign_answer_support_attempts,benign_answer_support_admitted,benign_answer_support_recall
+MMA,15444,15444,1.0,3801,3801,1.0
+SAGE-Mem v2,15444,3047,0.1972934472934473,3801,916,0.24098921336490398
+H5,15444,3208,0.20771820771820773,3801,942,0.2478295185477506
+H6,15444,3365,0.21788396788396788,3801,973,0.2559852670349908
