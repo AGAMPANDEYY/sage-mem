@@ -1,0 +1,5 @@
+condition,BCU,WriteASR,BeliefASR,Retrieval,ASR,FalseBelief,structured_claim_gate_fire_count_avg,group_divergence_fire_count_avg,group_outlier_score_avg,memory_conflict_score_avg,n_cases,n_qa_evals
+MMA,0.0,1.0,0.0,1.0,1.0,0.0,0.0,0.0,0.0,0.0,194,582
+SAGE-Mem v2,0.1753,0.6675,0.0,0.5498,0.5498,0.0704,0.0,0.0,0.0,0.0,194,582
+H5,0.0206,0.3505,0.0,0.8265,0.8265,0.0,0.0,0.0,0.0,0.0,194,582
+H6,0.1529,0.0,0.0,0.0,0.0,0.0,2.0,1.208,0.5814,0.0,194,582

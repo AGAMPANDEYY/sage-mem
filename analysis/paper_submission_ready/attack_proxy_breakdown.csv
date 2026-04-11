@@ -1,0 +1,5 @@
+condition,multimodal_attack_retrieval_rate,fact_overwrite_attack_retrieval_rate,control_flow_attack_retrieval_rate,answer_relevant_attack_retrieval_rate,derived_memory_corruption_rate,attack_write_admission_rate
+MMA,0.0,0.08,0.0383,0.1233,0.0,1.0
+SAGE-Mem v2,0.0,0.0,0.0,0.0,0.0,0.0
+H1,0.0,0.0,0.0,0.0017,0.0333,0.0
+RSum,0.0,0.0,0.0067,0.005,0.0333,0.0

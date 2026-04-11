@@ -535,6 +535,37 @@ MMA achieves higher benign utility (BCU 0.68) by storing all observations (634 i
 
 The paper should present this as a Pareto plot with BCU poison on the y-axis and Write ASR on the x-axis, where MMA is the top-right point (high utility, high attack admission) and SAGE-Mem is the bottom-left point (lower utility, zero admission).
 
+### Submission-Ready Analysis Artifacts
+
+To make the integrity--utility story reviewer-legible, we generated submission-ready analysis artifacts directly from the frozen local result set. These include:
+
+- a **LoCoMo Pareto plot** of `BCU poison` versus `Write ASR`,
+- an **MM-BrowseComp Pareto plot** of `BCU poison` versus `Write ASR`,
+- a **systems-cost table** summarizing average write latency, retrieve latency, and memory footprint on the browsing benchmark,
+- a **browsing comparison table** for the canonical grouped H5/H6 pair and the later semantic observation-group rerun,
+- an **attack-proxy breakdown** for the main LoCoMo suite using saved retrieval-side attack indicators (`multimodal_attack_retrieval_rate`, `fact_overwrite_attack_retrieval_rate`, `control_flow_attack_retrieval_rate`, `answer_relevant_attack_retrieval_rate`).
+
+These artifacts strengthen the paper in two ways. First, they make the utility--integrity frontier explicit rather than implicit in tables. Second, they clarify that the browsing result is not a single-point anecdote: H6 is simultaneously better than H5 on write admission, retrieval contamination, and downstream BCU under attack, while remaining close to H5 on clean utility.
+
+The concrete submission bundle is:
+
+- `analysis/paper_submission_ready/submission_ready_summary.md`
+- `analysis/paper_submission_ready/main_clean_table.csv`
+- `analysis/paper_submission_ready/main_poison_table.csv`
+- `analysis/paper_submission_ready/browsing_clean_table.csv`
+- `analysis/paper_submission_ready/browsing_adversarial_table.csv`
+- `analysis/paper_submission_ready/systems_cost_table.csv`
+- `analysis/paper_submission_ready/pareto_locomo_bcu_vs_write_asr.svg`
+- `analysis/paper_submission_ready/pareto_browsing_bcu_vs_write_asr.svg`
+- `analysis/paper_submission_ready/schema_gap_report.md`
+
+There is also an important negative result in the analysis pipeline itself. The frozen canonical raws do **not** include per-row `seed` or `attack_type`, so true seed-level confidence intervals and exact per-attack tables cannot be recovered retrospectively from the saved artifacts. We therefore distinguish between:
+
+- **submission-ready analysis we can support now** from the frozen artifacts, and
+- **targeted future reruns** needed for true per-attack and seed-variance reporting.
+
+This distinction is scientifically important. Rather than reverse-engineering unsupported breakdowns from incomplete logs, we preserve the paper’s credibility by reporting only what is actually recoverable from the saved data and treating richer variance/per-attack tables as targeted future work.
+
 ---
 
 ## 7. Reviewer-Resistant Positioning

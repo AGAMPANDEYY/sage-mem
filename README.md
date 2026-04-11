@@ -172,6 +172,35 @@ These semantic observation-group reruns are useful for mechanism analysis, but t
 
 ---
 
+## Submission-Ready Analysis Bundle
+
+The paper-facing tables and figures are generated from the frozen local final artifacts by:
+
+```bash
+./.venv/bin/python scripts/paper_analysis.py
+```
+
+Output directory:
+- [analysis/paper_submission_ready](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready)
+
+Important outputs:
+- [submission_ready_summary.md](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/submission_ready_summary.md)
+- [schema_gap_report.md](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/schema_gap_report.md)
+- [main_clean_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/main_clean_table.csv)
+- [main_poison_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/main_poison_table.csv)
+- [browsing_clean_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/browsing_clean_table.csv)
+- [browsing_adversarial_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/browsing_adversarial_table.csv)
+- [systems_cost_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/systems_cost_table.csv)
+- [pareto_locomo_bcu_vs_write_asr.svg](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/pareto_locomo_bcu_vs_write_asr.svg)
+- [pareto_browsing_bcu_vs_write_asr.svg](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/pareto_browsing_bcu_vs_write_asr.svg)
+
+These are the files to use when populating the paper quickly and consistently.
+
+Important limitation:
+- the frozen canonical JSONs still do **not** include per-row `seed` or `attack_type`, so exact per-attack tables, seed-level confidence intervals, and benign-write-recall analyses still require a targeted rerun with the richer schema now patched into the codebase
+
+---
+
 ## Authoritative Result Provenance
 
 The tracked local paper artifact set is:

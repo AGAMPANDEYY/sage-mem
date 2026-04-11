@@ -226,6 +226,33 @@ make analyze-run RUN_ID=paper_mmadv_abr_group_v1
 
 For the copied semantic reruns, inspect the local final artifact files directly or load them with a custom comparison script; they are not stored under a local `results/<RUN_ID>/` folder.
 
+### Submission-ready paper bundle
+
+Generate the paper-facing summary tables, systems-cost table, and Pareto SVGs from the frozen final result artifacts:
+
+```bash
+./.venv/bin/python scripts/paper_analysis.py
+```
+
+Outputs:
+
+```bash
+analysis/paper_submission_ready/submission_ready_summary.md
+analysis/paper_submission_ready/schema_gap_report.md
+analysis/paper_submission_ready/main_clean_table.csv
+analysis/paper_submission_ready/main_poison_table.csv
+analysis/paper_submission_ready/browsing_clean_table.csv
+analysis/paper_submission_ready/browsing_adversarial_table.csv
+analysis/paper_submission_ready/systems_cost_table.csv
+analysis/paper_submission_ready/pareto_locomo_bcu_vs_write_asr.svg
+analysis/paper_submission_ready/pareto_browsing_bcu_vs_write_asr.svg
+```
+
+Interpretation guidance:
+- use these files for the current paper draft and figures
+- do not back-fill unsupported per-attack or seed-CI claims from the frozen canonical JSONs
+- read `schema_gap_report.md` before deciding whether an additional rerun is worth the compute
+
 ---
 
 ## 7. Resume and Partial Runs

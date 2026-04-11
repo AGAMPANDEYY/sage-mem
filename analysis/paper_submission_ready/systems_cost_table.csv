@@ -1,0 +1,5 @@
+condition,write_avg_ms,retrieve_avg_ms,items_in_memory_avg,items_in_audit_avg,structured_claim_gate_fire_count_avg,group_divergence_fire_count_avg
+MMA,0.014,0.0,28.5,0.0,0.0,0.0
+SAGE-Mem v2,0.011,0.0,93.8,0.0,0.0,0.0
+H5,0.011,0.0,7.1,1.0,0.0,0.0
+H6,0.011,0.0,6.7,2.0,2.0,0.622
