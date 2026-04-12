@@ -1,0 +1,58 @@
+digraph SAGEMemArchitecture {
+  rankdir=LR;
+  graph [pad="0.2", nodesep="0.5", ranksep="0.8", bgcolor="white"];
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, penwidth=1.2];
+  edge [fontname="Helvetica", fontsize=10, penwidth=1.1, color="#5B6570"];
+
+  subgraph cluster_sources {
+    label="Observation Sources";
+    color="#D8E2EA";
+    style="rounded";
+    user [label="User / Tool / Browser", fillcolor="#EEF4F8", color="#90A4B4"];
+    vision [label="OCR / Vision Caption", fillcolor="#EEF4F8", color="#90A4B4"];
+  }
+
+  subgraph cluster_gate {
+    label="Write-Time Governance";
+    color="#CFE4D1";
+    style="rounded";
+    ingest [label="Channel + Source Provenance", fillcolor="#F1F8F2", color="#6FA079"];
+    trust [label="Trust + Anomaly +\nConsistency Checks", fillcolor="#F1F8F2", color="#6FA079"];
+    browse [label="BrowseGuard:\nStructured Claim Gate", fillcolor="#E8F6EA", color="#4F8B5B"];
+    dep [label="Dependent-Evidence\nHandling", fillcolor="#E8F6EA", color="#4F8B5B"];
+  }
+
+  subgraph cluster_memory {
+    label="Typed Memory";
+    color="#F2D9C7";
+    style="rounded";
+    evidence [label="Evidence", fillcolor="#FFF5EE", color="#C28B62"];
+    belief [label="Belief", fillcolor="#FFF5EE", color="#C28B62"];
+    control [label="Control", fillcolor="#FFF5EE", color="#C28B62"];
+    audit [label="Audit / Quarantine", fillcolor="#FFF5EE", color="#C28B62"];
+  }
+
+  subgraph cluster_downstream {
+    label="Downstream Use";
+    color="#D9D4EF";
+    style="rounded";
+    retrieve [label="Provenance-Aware Retrieval", fillcolor="#F5F2FD", color="#8B79B3"];
+    qa [label="Planner / QA / Action", fillcolor="#F5F2FD", color="#8B79B3"];
+  }
+
+  user -> ingest [label="raw observations"];
+  vision -> ingest [label="multimodal signals"];
+  ingest -> trust [label="typed write request"];
+  trust -> browse [label="browser claims"];
+  trust -> dep [label="cross-modal support"];
+  browse -> evidence [label="admit"];
+  dep -> evidence [label="admit"];
+  trust -> audit [label="quarantine / reject", style=dashed, color="#B96A5B"];
+  evidence -> belief [label="sufficiency-gated promotion"];
+  evidence -> control [label="typed control memory"];
+  belief -> retrieve;
+  control -> retrieve;
+  evidence -> retrieve;
+  audit -> retrieve [label="lineage only", style=dashed, color="#B96A5B"];
+  retrieve -> qa [label="grounded context"];
+}

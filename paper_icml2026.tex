@@ -9,6 +9,7 @@
 \usepackage{hyperref}
 \usepackage{url}
 \usepackage{enumitem}
+\graphicspath{{assets/plots/}{assets/media/}}
 
 \icmltitlerunning{SAGE-Mem: Write-Time Governance for Multimodal Agent Memory}
 
@@ -295,6 +296,13 @@ The production-systems rationale for this design is simple:
 \end{itemize}
 
 Retrieval-time filtering remains useful. SAGE-Mem’s claim is not that retrieval defenses are obsolete, but that they are incomplete if the store itself is already contaminated.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{sagemem_architecture.pdf}
+\caption{SAGE-Mem as a write-time governed memory layer. Heterogeneous observations are checked through provenance-aware write-time governance before entering typed memory partitions. BrowseGuard adds browser-specific claim gating for externally sourced factual assertions, while dependent-evidence handling prevents duplicated multimodal signals from being counted as independent support.}
+\label{fig:sagemem-architecture}
+\end{figure}
 
 
 
@@ -717,6 +725,13 @@ The paper should present this as a Pareto plot with BCU poison on the y-axis and
 \textbf{Suggested caption.}
 \emph{Figure X: Integrity--utility Pareto frontier on the main LoCoMo benchmark. Retrieval-time MMA occupies the high-utility/high-admission region, while SAGE-Mem v2 occupies the low-admission region with reduced benign completion under attack. The figure makes explicit that the main empirical story is a frontier tradeoff, not uniform dominance.}
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{pareto_locomo_bcu_vs_write_asr.pdf}
+\caption{Integrity--utility Pareto frontier on the main LoCoMo benchmark. Retrieval-time MMA occupies the high-utility / high-admission region, while SAGE-Mem occupies the low-admission region with lower benign completion under attack.}
+\label{fig:pareto-locomo}
+\end{figure}
+
 \subsection{Submission-Ready Analysis Artifacts}
 
 To make the integrity--utility story reviewer-legible, we generated submission-ready analysis artifacts directly from the frozen local result set. These include:
@@ -753,6 +768,13 @@ For the browsing section, the main figure artifact is:
 
 \textbf{Suggested caption.}
 \emph{Figure Y: Integrity--utility Pareto frontier on grouped MM-BrowseComp. SAGE-Mem-Browse reduces attack admission relative to generic SAGE-Mem but remains highly contaminated at retrieval time. SAGE-Mem-BrowseGuard moves to the zero-admission, zero-retrieval-contamination corner while preserving near-clean utility, supporting the claim that browser-specific write-time claim governance is more robust than a keyword prior alone.}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{pareto_browsing_bcu_vs_write_asr.pdf}
+\caption{Integrity--utility Pareto frontier on grouped MM-BrowseComp. SAGE-Mem-BrowseGuard reaches the zero-admission, zero-retrieval-contamination corner while maintaining near-clean utility; SAGE-Mem-Browse remains vulnerable on the adaptive browser overwrite track.}
+\label{fig:pareto-browsing}
+\end{figure}
 
 There is also an important negative result in the analysis pipeline itself. The frozen canonical raws do \textbf{not} include per-row \texttt{seed} or \texttt{attack\_type}, so true seed-level confidence intervals and exact per-attack tables cannot be recovered retrospectively from the saved artifacts. We therefore distinguish between:
 
