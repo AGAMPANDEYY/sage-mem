@@ -20,7 +20,5 @@ data/mm_browsecomp_pilot/
 results/*
 
 #paper
-*.tex
-icml2026 (1)/
 paper_draft.md
 .claude/*
