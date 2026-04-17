@@ -125,6 +125,12 @@ _VISUAL_DIRECTIVE_RE = re.compile(
 )
 
 _BROWSER_TOOL_SOURCE = "browser_tool_output_text"
+# Visual observation channels subject to the same semantic write-time gate.
+# OCR and vision-caption are untrusted external surfaces; they receive the
+# same S1-S4 composite trust check (cosine conflict, corroboration deficit,
+# channel singleton) as browser-derived writes. No regex matching.
+_ABR_VISUAL_SOURCES: frozenset = frozenset({"ocr_text", "vision_caption"})
+_ABR_GATED_SOURCES: frozenset = frozenset({_BROWSER_TOOL_SOURCE}) | _ABR_VISUAL_SOURCES
 
 
 def _apply_browser_context_trust_prior(
@@ -2482,7 +2488,7 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
         # Vocabulary-agnostic composite suspicion scorer: catches adaptive
         # adversaries that paraphrase around the correction-language regex.
         # Only active when enable_abr=True (SAGEMemV2_ABR condition).
-        if self._enable_abr and source_type == _BROWSER_TOOL_SOURCE and self._cfg is not None:
+        if self._enable_abr and source_type in _ABR_GATED_SOURCES and self._cfg is not None:
             abr_threshold = float(self._cfg.thresholds.abr_suspicion_threshold)
             abr_cap = float(self._cfg.thresholds.abr_trust_cap)
             effective_thr = _clip01(abr_threshold + self._abr_jitter)
@@ -2556,6 +2562,41 @@ class SAGEMemory(ConstructorGuardedSandboxMemory):
             elif div_score > 0.0:
                 # Mild outlier — light trust penalty
                 kwargs["trust"] = min(float(kwargs["trust"]), 0.40)
+
+
+        # ── Visual-source observation-group divergence gate ─────────────────
+        # VPI attacks deliver paired OCR and vision-caption observations
+        # sharing the same observation_group (same adversarial source image).
+        # The standard browser observation-group divergence check is extended
+        # here to visual channels: when two observations from the same image
+        # group both exhibit semantic conflict with established memory, the
+        # second observation is trust-capped at write time.
+        # Implementation: identical _observation_group_divergence_scores call
+        # used for browser obs-groups — semantic cosine scoring, no regex.
+        if self._enable_abr and source_type in _ABR_VISUAL_SOURCES:
+            _v_obs_group = kwargs.get("observation_group")
+            if _v_obs_group:
+                _v_precomputed = _precomputed_observation_group_scores(kwargs)
+                if _v_precomputed is None:
+                    _v_outlier, _v_conflict, _v_fired = _observation_group_divergence_scores(
+                        incoming_text=text,
+                        observation_group=_v_obs_group,
+                        existing_items=self.items,
+                        fact_key=kwargs.get("fact_key"),
+                        fact_value=str(kwargs.get("fact_value", "") or ""),
+                    )
+                else:
+                    _v_outlier, _v_conflict, _v_fired = _v_precomputed
+                kwargs["group_outlier_score"] = max(
+                    float(kwargs.get("group_outlier_score", 0.0)), _v_outlier
+                )
+                kwargs["memory_conflict_score"] = max(
+                    float(kwargs.get("memory_conflict_score", 0.0)), _v_conflict
+                )
+                if _v_fired:
+                    self.group_divergence_fire_count += 1
+                    self.group_divergence_quarantine_count += 1
+                    kwargs["trust"] = min(float(kwargs["trust"]), 0.10)
 
         kwargs["actionable"] = False
         target_partition = self._typed_partition_for_item(

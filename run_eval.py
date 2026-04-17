@@ -749,9 +749,9 @@ def main():
     mm_raw = None
 
     def _checkpoint_save() -> None:
-        if locomo_raw is None:
+        if locomo_raw is None and mm_raw is None:
             return
-        locomo_summary_now = aggregate_eval_metrics(locomo_raw)
+        locomo_summary_now = aggregate_eval_metrics(locomo_raw) if locomo_raw is not None else None
         mm_summary_now = aggregate_eval_metrics(mm_raw) if mm_raw is not None else None
         payload = _build_output_payload(
             locomo_raw=locomo_raw,
