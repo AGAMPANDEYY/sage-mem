@@ -125,17 +125,6 @@ _VISUAL_DIRECTIVE_RE = re.compile(
 )
 
 _BROWSER_TOOL_SOURCE = "browser_tool_output_text"
-_BROWSER_CORRECTION_RE = re.compile(
-    r"\b("
-    r"correction confirmed|confirmed correction|source correction|errata|superseded|supersedes|"
-    r"previously stored|previously reported|previous value|previous answer|earlier draft|"
-    r"has since been (updated|corrected|superseded)|"
-    r"the (actual|correct|updated|latest|current) answer (is|should be)|"
-    r"replace (the )?(earlier|prior|previous) (answer|value|entry|memory)|"
-    r"disregard (the )?(earlier|prior|previous)|ignore (the )?(earlier|prior|previous)"
-    r")\b",
-    re.IGNORECASE | re.DOTALL,
-)
 
 
 def _apply_browser_context_trust_prior(
@@ -149,17 +138,14 @@ def _apply_browser_context_trust_prior(
     Source-context-sensitive prior for web/browsing observations.
 
     Generic tool outputs may be trusted internal API responses. Browser-derived
-    text is different: page content can be adversarially edited and often
-    includes correction-like language that attempts to overwrite prior evidence.
-    This gate is provenance-based and deterministic; it does not depend on a
-    specific benchmark case ID or attack marker.
+    text is different: page content is externally controlled and should start
+    from a stricter trust prior than internal tools. This gate is provenance-
+    based and deterministic; it does not depend on benchmark case IDs, attack
+    markers, or trigger-word matching.
     """
     if source_type != _BROWSER_TOOL_SOURCE or cfg is None:
         return _clip01(trust)
-    capped = min(float(trust), float(cfg.thresholds.browser_tool_trust_cap))
-    if _BROWSER_CORRECTION_RE.search(text):
-        capped = min(capped, float(cfg.thresholds.browser_correction_trust_cap))
-    return _clip01(capped)
+    return _clip01(min(float(trust), float(cfg.thresholds.browser_tool_trust_cap)))
 
 def _cross_source_divergence_score(
     *,
@@ -341,21 +327,27 @@ def _memory_conflict_score(
     """
     Estimate whether a browser sentence is trying to revise established memory.
 
-    Strong path: structured fact-key/value collision. Fallback: same-topic,
-    non-identical similarity to trusted planning memory. The fallback is
-    intentionally conservative and deterministic; semantic embedders can improve
-    it, but the gate must not silently depend on unavailable model packages.
+    Primary path: semantic contradiction against trusted items discussing the
+    same slot/topic. When a matching fact_key exists, we compare the incoming
+    value against the prior value with mixed lexical+semantic similarity rather
+    than exact token matching. Fallback: same-topic, non-identical similarity to
+    trusted planning memory. The fallback is intentionally conservative and
+    deterministic; semantic embedders can improve it, but the gate must not
+    silently depend on unavailable model packages.
     """
     if fact_key and fact_value:
-        target = _norm_fact_token(fact_value)
+        incoming_value_text = str(fact_value).strip()
         for it in reversed(list(existing_items)):
             if getattr(it, "partition", "planning") == "audit":
                 continue
             if getattr(it, "fact_key", None) != fact_key:
                 continue
-            prior = _norm_fact_token(getattr(it, "fact_value", None))
-            if prior and target and prior != target:
-                return 1.0
+            prior_value_text = str(getattr(it, "fact_value", None) or "").strip()
+            if not prior_value_text or not incoming_value_text:
+                continue
+            value_sim = _mixed_text_similarity(incoming_value_text, prior_value_text)
+            if value_sim < 0.55:
+                return min(1.0, (0.55 - value_sim) / 0.55)
 
     inc_tokens = _content_tokens(incoming_text)
     if not inc_tokens:
@@ -485,10 +477,10 @@ def _abr_suspicion_score(
 
     Four orthogonal signals (composite trust scoring, Zhu et al. 2026):
 
-      S1 – Structured fact-key collision (w=0.40)
-           Incoming fact_key/fact_value directly conflicts with a protected fact
-           already in memory. Deterministic; strongest single signal.
-           Ref: provenance-ledger fact attestation (Perez & Ribeiro 2022).
+      S1 – Semantic memory-consistency check (w=0.40)
+           Incoming content semantically conflicts with trusted memory on the
+           same slot/topic. Uses mixed lexical+semantic similarity rather than
+           trigger-word or exact-value matching.
 
       S2 – Semantic proximity to trusted memory (w=0.30)
            Max cosine similarity to high-trust items (trust ≥ 0.65).
@@ -517,25 +509,13 @@ def _abr_suspicion_score(
     topic_sim_thr = float(getattr(cfg.thresholds, "abr_topic_sim_threshold", 0.50))
     corr_needed = max(1, int(getattr(cfg.thresholds, "abr_corroboration_needed", 3)))
 
-    # ── S1: Structured fact-key collision ───────────────────────────────────
-    s1 = 0.0
-    if fact_key and fact_value:
-        fv_incoming = str(fact_value).lower().strip()
-        for it in existing_items:
-            if (
-                getattr(it, "source_type", "") == "protected_fact"
-                and getattr(it, "fact_key", None) == fact_key
-                and getattr(it, "fact_value", None) is not None
-            ):
-                fv_stored = str(it.fact_value).lower().strip()
-                if fv_stored and fv_incoming and fv_stored != fv_incoming:
-                    stored_tokens = set(fv_stored.split())
-                    incoming_tokens = set(fv_incoming.split())
-                    union = stored_tokens | incoming_tokens
-                    jaccard = len(stored_tokens & incoming_tokens) / len(union) if union else 0.0
-                    if jaccard < 0.30:
-                        s1 = 1.0
-                        break
+    # ── S1: Semantic memory-consistency check ───────────────────────────────
+    s1 = _memory_conflict_score(
+        incoming_text=text,
+        fact_key=fact_key,
+        fact_value=fact_value,
+        existing_items=existing_items,
+    )
 
     # ── S2: Semantic proximity to high-trust memory ──────────────────────────
     s2 = 0.0

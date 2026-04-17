@@ -130,6 +130,12 @@ def parse_args():
                    default="random", help="Attack injection position mode (default: random)")
     p.add_argument("--max-workers", type=int, default=4,
                    help="Parallel workers across independent (seed, condition) units (default: 4)")
+    p.add_argument("--retrieval-top-k", type=int, default=8,
+                   help="Retrieval depth top_k used by memory backends (default: 8)")
+    p.add_argument("--consolidation-period-k", type=int, default=8,
+                   help="Consolidation period K used by long-term memory backends (default: 8)")
+    p.add_argument("--keep-last-m-raw", type=int, default=4,
+                   help="Number of recent raw items retained across consolidation (default: 4)")
     p.add_argument("--sage-v2", action="store_true",
                    help="Include SAGEMemV2 condition (Bayesian trust + consistency graph + anomaly detection)")
     p.add_argument("--include-v2-ablations", action="store_true",
@@ -667,7 +673,10 @@ def main():
     # Train procedural detector
     set_all_seeds(0)
     hp = {
-        "embed_dim": 256, "top_k": 8, "consolidation_period_K": 8, "keep_last_M_raw": 4,
+        "embed_dim": 256,
+        "top_k": int(args.retrieval_top_k),
+        "consolidation_period_K": int(args.consolidation_period_k),
+        "keep_last_M_raw": int(args.keep_last_m_raw),
         "trigger_step": 10, "poison_rate": 0.30,
         "ocr_noise_prob_low": 0.05, "ocr_noise_prob_high": 0.25,
         "multimodal_turn_rate": 0.20,

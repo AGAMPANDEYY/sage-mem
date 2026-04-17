@@ -1873,9 +1873,9 @@ def inject_write_time_attacks(
     if "fact_overwrite_adaptive" in attack_types:
         # ── Fact Overwrite — Adaptive (vocabulary-evading) ──────────────────
         # Same semantic goal as fact_overwrite_injection but uses paraphrased
-        # templates that contain NONE of the keywords in _BROWSER_CORRECTION_RE.
-        # This is the honest adaptive adversary benchmark: tests whether ABR's
-        # composite suspicion scoring generalises beyond regex vocabulary.
+        # templates that avoid explicit correction-language phrasing. This is
+        # the honest adaptive adversary benchmark: it tests whether browsing
+        # defenses generalise beyond one surface form of overwrite text.
         # Ref: Adaptive Attacks Break Defenses (2025) §3.2.
         gold = extract_gold_answer(case)
         wrong = _generate_wrong_answer(gold, turns, rng)
