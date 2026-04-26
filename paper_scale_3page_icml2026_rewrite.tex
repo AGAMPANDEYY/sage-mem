@@ -7,6 +7,7 @@
 \usepackage{multirow}
 \usepackage{graphicx}
 \usepackage{adjustbox}
+\usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{url}
 \usepackage{capt-of}
@@ -16,6 +17,7 @@
 \usepackage{pgfplots}
 \usetikzlibrary{fit,backgrounds}
 \pgfplotsset{compat=1.18}
+\definecolor{gold}{rgb}{1.0,0.84,0.0}
 \hypersetup{
   breaklinks=true,
   colorlinks=false,
@@ -47,14 +49,14 @@
 \printAffiliationsAndNotice{}
 
 \begin{abstract}
-Persistent memory makes multimodal agents more capable, but it also creates a durable attack surface: once unsupported content is written, later retrieval and consolidation can reuse it. We study \emph{write-time defense} for multimodal agent memory. \textbf{SAGE-Mem} separates \emph{evidence} from \emph{belief} and uses a guarded write boundary to decide which observations are allowed to become durable state. This targets a failure mode that retrieval-time defenses cannot fully address once poisoned content has already entered memory. We evaluate on \textbf{LoCoMo-Adv}, an adversarial multimodal extension of LoCoMo-10, and on \textbf{MM-BrowseComp-Adv}, a multimodal browsing benchmark spanning answer-overwrite, OCR, vision-caption, and visual-prompt attacks. On LoCoMo-Adv, SAGE-Mem reduces write admission and retrieval contamination from \(1.00/0.133\) under a retrieval-time baseline to \(0/0\), but at lower benign completion under attack (\(0.460\) vs.\ \(0.642\)). On the canonical browsing overwrite setting, \textbf{BrowseGuard} blocks all 388 direct and paraphrased overwrite attempts while preserving attacked utility near its clean level (\(0.155\) vs.\ \(0.160\)). This canonical result isolates the write-policy question cleanly, while the broader five-attack suite tests whether the same idea survives a harder multimodal browsing setting. On that broader suite, \textbf{BrowseGuard-Extended} reduces Write ASR from \(0.2552\) to \(0.0369\) and Retrieval ASR from \(0.5636\) to \(0.3694\) relative to generic SAGE-Mem. The main takeaway is straightforward: for memory-bearing agents, robustness should be evaluated at the point where observations become persistent state, not only at retrieval time.
+Persistent memory makes multimodal agents more capable, but it also creates a new attack surface: once unsupported content is written into memory, later retrieval and consolidation can reuse it as if it were reliable state. We study \emph{write-time defense} for multimodal agent memory. Our system, \textbf{SAGE-Mem}, separates transient \emph{evidence} from durable \emph{belief}: observations may be stored as evidence, but they are promoted to belief only when they are sufficiently supported, independent, and non-conflicting. This targets a gap left by retrieval-time defenses, which act only after poisoned content has already entered memory. We evaluate on \textbf{LoCoMo-Adv}, an adversarial multimodal extension of LoCoMo-10, and on \textbf{MM-BrowseComp-Adv}, a multimodal browsing benchmark covering answer-overwrite, OCR, vision-caption, and visual-prompt attacks. On LoCoMo-Adv, at a conservative operating point, SAGE-Mem eliminates observed write admission and retrieval contamination relative to a retrieval-time baseline, but reduces benign completion under attack (\(0.460\) vs.\ \(0.642\)). On the canonical browsing overwrite setting, \textbf{BrowseGuard}, a browsing-specific write policy built on the same principle, blocks all 388 direct and paraphrased overwrite attempts while keeping attacked utility near its clean level (\(0.155\) vs.\ \(0.160\)). On the broader five-attack browsing suite, extending the same guarded write policy across browser, OCR, and caption channels reduces Write ASR from \(0.2552\) to \(0.0369\) and Retrieval ASR from \(0.5636\) to \(0.3694\). Overall, the results suggest that for memory-bearing agents, robustness should be evaluated not only at retrieval, but also at the point where observations become persistent state.
 \end{abstract}
 
 \section{Introduction}
 
-Persistent memory changes the attack surface of an agent. A stateless model can be manipulated within one context window; a stateful agent can be manipulated by changing the stored state that later reasoning depends on~\cite{ref1,ref2,memgraft,ref3,mpad}. The problem is sharper in multimodal systems because apparent agreement can be misleading: OCR text and a caption produced from the same adversarial image are two observations, but not two independent pieces of evidence~\cite{crossinject,visualtrap}.
+Persistent memory changes an agent's attack surface. A stateless model can be manipulated within one context window; a stateful agent can be manipulated by changing the stored state that later reasoning depends on~\cite{ref1,ref2,memgraft,ref3,mpad}. The problem is sharper in multimodal systems because apparent agreement can be misleading: OCR text and a caption from the same adversarial image are two observations, but not two independent pieces of evidence~\cite{crossinject,visualtrap}.
 
-Most existing defenses act after the damage is already in the store. Retrieval-time scoring can down-rank suspicious memories, but it does not prevent poisoned content from being consolidated or used as support for later beliefs~\cite{ref4,ragpartmask,ref5,ref6,ref7}. This paper studies a simpler question: what should be allowed to become persistent memory in the first place?
+Most existing defenses act after damage is already in the store. Retrieval-time scoring can down-rank suspicious memories, but it does not prevent poisoned content from being consolidated or used as support for later beliefs~\cite{ref4,ragpartmask,ref5,ref6,ref7}. This paper studies a simpler question: what should be allowed to become persistent memory in the first place?
 
 \begin{figure*}[!t]
 \centering
@@ -147,42 +149,41 @@ Most existing defenses act after the damage is already in the store. Retrieval-t
 
 \end{tikzpicture}
 \end{adjustbox}
-\caption{\textbf{SAGE-Mem enforces a write boundary before content becomes durable state.} Observations enter evidence memory first; belief memory is promoted only from sufficiently supported evidence.}
+\caption{\textbf{SAGE-Mem enforces a write boundary before content becomes durable state.} Observations enter evidence memory first; belief memory is promoted only from sufficiently supported evidence. A detailed architecture diagram is in Appendix Figure~\ref{fig:appendix-sagemem-arch}.}
 \label{fig:scale-arch-rewrite}
 \end{figure*}
 
-We implement this idea in \textbf{SAGE-Mem}, a write-time memory layer for multimodal agents. It separates \emph{evidence} from \emph{belief}, and \emph{multi-view} evidence from \emph{independent} evidence: OCR text and a caption from the same image should not count as two corroborating supports. The paper makes three concrete contributions: a write-time memory formulation centered on evidence-versus-belief separation, a multimodal browser benchmark that distinguishes clean overwrite from broader cross-channel attacks, and empirical evidence that the write boundary changes outcomes that retrieval-time filtering alone does not.
 
-On \textbf{LoCoMo-Adv}, SAGE-Mem drives both write admission and retrieval contamination to zero, but with a conservative operating point that also suppresses useful benign evidence. On \textbf{MM-BrowseComp-Adv}, the guarded write restriction eliminates all 388 direct and paraphrased overwrite attempts without a corresponding collapse in clean utility. On the broader five-attack suite, the same extension still reduces admission sharply relative to generic SAGE-Mem (Appendix~\ref{sec:appendix-five-attack}). The claim is scoped accordingly: for agents with persistent memory, evaluating only what is retrieved is incomplete; one must also evaluate what is allowed to become state.
+We instantiate this view in \textbf{SAGE-Mem}, a write-time memory layer for multimodal agents. The key distinction is between \emph{evidence}, which records observations, and \emph{belief}, which records state the agent is willing to rely on later. This separation also lets us distinguish repeated views from independent support: OCR text and a caption extracted from the same image may agree, but they should not automatically count as two corroborating sources. The paper makes three contributions. First, it proposes a write-time view of multimodal memory centered on evidence-belief separation. Second, it introduces a browsing benchmark that separates direct answer overwrite from broader cross-channel attacks. Third, it shows that controlling the write boundary changes outcomes that retrieval-time filtering alone does not. The claim is intentionally modest: for persistent-memory agents, it is not enough to evaluate what is retrieved; one must also evaluate what is allowed to become state.
 
 \section{Method}
 
-SAGE-Mem inserts a write-time decision layer between observations and persistent memory. Each incoming item is assigned a semantic role: \texttt{DATA}, \texttt{DIRECTIVE}, or \texttt{METADATA}. Directives and suspicious items are quarantined; page scaffolding is dropped; only admitted \texttt{DATA} enters memory. Each observation is routed to one of three outcomes: reject, store as evidence, or promote to belief. This makes the write boundary operational rather than implicit: the system first decides whether an observation is eligible to enter memory at all, and only then whether it is strong enough to become durable state.
+SAGE-Mem inserts an explicit write boundary between incoming observations and persistent memory. When the agent receives a new observation, the system first asks whether the observation should enter memory at all, and only then asks whether any claim derived from it is strong enough to become durable state. This yields three outcomes: reject the write, store it as \emph{evidence}, or promote a supported claim to \emph{belief}. Evidence is therefore broader than belief: the system may retain an observation for inspection without treating it as trusted state.
 
-SAGE-Mem separates \emph{evidence admission} from \emph{belief promotion}. Admitted items are stored as evidence with source and provenance metadata. Promotion is stricter than admission. For a candidate claim \(q\),
+The central distinction is between \emph{evidence admission} and \emph{belief promotion}. Evidence is an observed item together with provenance, such as its source type and channel. Belief is a promoted claim that the agent may later rely on. Promotion is stricter than admission. For a candidate claim \(q\),
 \[
 \begin{aligned}
 q \in \text{belief} \iff\;& q \in \text{evidence} \land \operatorname{sup}(q) \ge k \\
 & \land\ \operatorname{indep}(q)=1 \land \operatorname{conflict}(q)=0 \, .
 \end{aligned}
 \]
-Here \(\operatorname{sup}(q)\) denotes trusted support, \(\operatorname{indep}(q)\) requires independence across views, and \(\operatorname{conflict}(q)\) indicates contradiction with higher-trust state. OCR text and a caption from the same image may both be stored as evidence, but they do not by themselves count as two independent supports. Source trust is initialized from the threat model and refined online.
+Here \(\operatorname{sup}(q)\) denotes trusted support, \(\operatorname{indep}(q)\) requires support from independent views, and \(\operatorname{conflict}(q)\) indicates contradiction with higher-trust state. In particular, OCR text and a caption from the same image may both be retained as evidence, but they do not by themselves count as two independent supports. This matters in multimodal settings, where repeated views of one adversarial object can otherwise look like corroboration.
 
-In browsing, externally-controlled page content, whether delivered as browser text, OCR, or a VLM caption, can attempt to overwrite previously established answer state by presenting the false answer as ordinary factual text~\cite{browsesafe}. Generic source down-weighting does not reliably stop this because low-trust content can still accumulate as factual evidence. We therefore add \textbf{BrowseGuard}: a semantic gate plus a hard restriction that externally-controlled content cannot directly revise canonical answer-bearing belief state. In the broader five-attack extension, we apply the same gate across browser, OCR, and vision-caption channels; for visual prompt injection, paired OCR and caption observations from the same adversarial image group additionally trigger an observation-group divergence check. Without that extra check, same-image OCR and caption outputs can appear to corroborate each other; Appendix~\ref{sec:appendix-five-attack-method} gives the exact extended-write policy used in that run.
+This distinction is simple but important. Human readers keep a difference between ``something was observed'' and ``something is now trusted.'' Persistent-memory agents need the same discipline. Without that separation, any fluent external statement can be stored in the same form as established state, which makes later retrieval look more reliable than it is. SAGE-Mem is designed to preserve that distinction explicitly.
+
+Operationally, SAGE-Mem applies a semantic write check to each incoming item and classifies it as factual data, directive-like content, or non-evidential metadata. Only admitted factual data can enter evidence memory; directives, high-risk items, and uncertain borderline cases are routed to quarantine, with an optional LLM fallback used only for ambiguous writes near the decision threshold. This keeps the main write path simple while preserving a review channel for cases that are not clearly benign or clearly adversarial. For browsing, we add \textbf{BrowseGuard}, a browsing-specific write policy motivated by a simple failure mode: externally controlled page content can present a false answer as if it were ordinary factual text~\cite{browsesafe}. Source down-weighting alone does not reliably stop this, because low-trust content can still accumulate in memory and later be retrieved. BrowseGuard therefore prevents externally controlled browser content from directly revising canonical answer-bearing belief state, using local semantic checks over nearby page context and rolling cross-page consistency checks to detect overwrite-style contradictions before they become durable state. In the broader five-attack extension, the same principle is applied across browser, OCR, and vision-caption channels; for visual prompt injection, paired OCR and caption observations from the same image group trigger an additional dependence check. Appendix~\ref{sec:appendix-five-attack-method} gives the exact extended policy.
 
 \section{Evaluation Setup}
 
-We evaluate two regimes. \textbf{LoCoMo-Adv} extends LoCoMo-10~\cite{locomo} with multimodal poisoning, visual prompt injection, and noisy or missing-modality variants. The frozen main poisoned summary contains 10 cases and 600 QA evaluations. \textbf{MM-BrowseComp-Adv} extends leakage-clean MM-BrowseComp traces with VLM-augmented browser observations and five attack families spanning answer overwrite, OCR injection, vision-caption injection, and visual prompt injection. The benchmark contains 194 browsing cases and 582 QA evaluations; full construction details are in Appendix~\ref{sec:appendix-setup}. LoCoMo-Adv stresses long-horizon multimodal memory corruption, whereas MM-BrowseComp-Adv isolates browser-mediated state revision under controlled external content. Using both lets us test the same write-boundary hypothesis in conversational memory and tool-mediated browsing.
+We evaluate two complementary regimes. \textbf{LoCoMo-Adv} extends LoCoMo-10~\cite{locomo} with multimodal poisoning, visual prompt injection, and noisy or missing-modality variants. The frozen main artifact contains 10 cases and 600 QA evaluations. This regime is small and controlled, but it gives a clean end-to-end view of long-horizon memory corruption. \textbf{MM-BrowseComp-Adv} extends leakage-clean MM-BrowseComp traces with VLM-augmented browser observations and five attack families spanning answer overwrite, OCR injection, vision-caption injection, and visual prompt injection. It contains 194 browsing cases and 582 QA evaluations and isolates browser-mediated state revision under controlled external content. We therefore view both benchmarks as controlled stress tests rather than broad claims of real-world coverage. Full construction details are in Appendix~\ref{sec:appendix-setup}.
 
-We report \textbf{Write ASR}, \textbf{Retrieval ASR}, and \textbf{BCU} (Benign Completion Under Attack). Exact definitions appear in Appendix~\ref{sec:appendix-eval-protocol}. These metrics separate three failure stages that answer accuracy alone would collapse: admission into memory, contamination of retrieved context, and task completion under attack. A defense can therefore look strong at retrieval while still allowing poisoned content to become durable state. All main-text runs use one frozen operating point with retrieval depth \(\texttt{top\_k}=8\) and consolidation cadence \(K=4\). For LoCoMo-Adv and the VPI-only setting, we also use an external LLM judge that sees only retrieved context, the question, and the gold answer. We present LoCoMo-Adv first because it gives the clearest end-to-end view of memory integrity, then turn to MM-BrowseComp-Adv for the cleaner browser-mediated overwrite comparison.
+We report three lifecycle metrics. \textbf{Write ASR} measures how often attack observations cross the write boundary. \textbf{Retrieval ASR} measures how often attack-derived content later appears in retrieved memory. \textbf{BCU} (Benign Completion Under Attack) measures whether the agent completes the benign task under attack. Together, these metrics separate admission, downstream contamination, and attacked utility. In the main tables, \textbf{MMA} is the retrieval-time baseline, \textbf{RSum} is the recursive summarization baseline, and \textbf{SAGE-Mem-Browse} is a provenance-only browsing variant without the guarded write restriction. All main-text runs use one frozen operating point with retrieval depth \(\texttt{top\_k}=8\) and consolidation cadence \(K=4\).
 
 \section{Results}
 
-On \textbf{LoCoMo-Adv}, the main comparison is between retrieval-time filtering and write-time control. \textbf{MMA} achieves the highest attacked utility, but only by admitting every attack write. \textbf{SAGE-Mem} eliminates both write admission and retrieval contamination, but pays for that integrity with lower benign completion. This is the key contrast with retrieval-only defense: once poisoned content has already entered memory, later scoring cannot recover the original clean state. The LoCoMo result therefore speaks most directly to memory integrity, not to the best achievable utility point.
+On \textbf{LoCoMo-Adv}, the main comparison is between retrieval-time filtering and write-time control. \textbf{MMA} preserves the highest attacked utility, but only by admitting every attack write. \textbf{SAGE-Mem} eliminates observed write admission and retrieval contamination at the reported operating point, but pays for that integrity with lower benign completion. This result is best read as evidence for the write-boundary hypothesis, not as a claim that the current operating point is an optimal general-purpose memory policy. Once poisoned content has already entered persistent memory, later retrieval scoring cannot fully recover the original clean state.
 
-The VPI-only results support the multimodal dependence argument: in that setting, SAGE-Mem drives both write admission and retrieval contamination to zero when the attack is delivered through an adversarial image. In the separate noisy/missing-modality robustness setting, retrieval contamination remains near zero (\(0.005\)).
-
-Table~\ref{tab:locomo-main-rewrite} summarizes that tradeoff. The appendix shows that benign-write recall is extremely low at the reported operating point, so the \textbf{LoCoMo-Adv} result is best understood as evidence for the write-boundary hypothesis rather than a general-purpose memory policy.
+The practical implication is straightforward: memory integrity and benign recall are in tension at the current operating point, but that tension is now exposed rather than hidden inside one aggregate score. This makes the write boundary a tunable design choice rather than an implicit side effect of retrieval.
 
 \begin{center}
 \captionsetup{type=table}
@@ -204,11 +205,9 @@ RSum & 0.4533 & 0.0000 & 0.0067 \\
 \end{adjustbox}
 \end{center}
 
-On \textbf{MM-BrowseComp-Adv}, the canonical table tests whether externally-controlled browser content can revise answer-bearing state through direct and paraphrased overwrite. This setting matters because it isolates the write-policy failure without conflating it with OCR or caption noise. A provenance prior lowers channel trust but does not change the write policy, so overwrite content still enters memory as ordinary factual text.
+On \textbf{MM-BrowseComp-Adv}, the canonical table asks a narrower question: can externally controlled browser content revise answer-bearing state by presenting a false answer as ordinary factual text? This setting isolates the write-policy failure without conflating it with OCR or caption noise. Table~\ref{tab:mmbrowse-rewrite} shows that generic SAGE-Mem still admits many answer-overwrite attempts, and the provenance-only browsing extension does not solve the problem. The clearest result is the canonical \textbf{BrowseGuard} row: it blocks all 388 direct and paraphrased overwrite attempts while keeping attacked utility close to clean utility (\(0.1546\) vs.\ \(0.1598\); Appendix~\ref{tab:appendix-browse-clean}). The broader five-attack row is intentionally harder and uses an extended guarded-write policy applied across browser, OCR, and caption channels. In that setting, \textbf{BrowseGuard-Extended} still reduces admission sharply relative to generic SAGE-Mem (Appendix~\ref{sec:appendix-five-attack}), but does not eliminate all multimodal contamination. The improvement therefore comes from controlling which observations may become persistent answer-bearing state, not simply from assigning lower trust to browser-derived content.
 
-Table~\ref{tab:mmbrowse-rewrite} shows that generic SAGE-Mem still admits many answer overwrites, and the provenance-only browsing extension does not solve the problem. The canonical result for \textbf{BrowseGuard} is the clearest one: it blocks all 388 answer-overwrite attempts and keeps attacked utility close to clean utility (\(0.1546\) vs.\ \(0.1598\); Appendix~\ref{tab:appendix-browse-clean}). The same table also reports the broader five-attack extension, where \textbf{BrowseGuard-Extended} still reduces admission sharply. That broader row shows that the browsing result is not limited to one benchmark-matched overwrite template. It also clarifies what remains hard: the write boundary transfers beyond browser text alone, but OCR- and caption-mediated attacks are still a live surface; Appendix~\ref{sec:appendix-five-attack-method} details the extension.
-
-\textbf{SAGE-Mem-Browse}, which adds a provenance prior for browser text without changing the write policy, remains highly vulnerable and underperforms generic SAGE-Mem on attacked utility. The mechanism that changes outcomes is the guarded write restriction on answer-bearing state. On the broader multimodal setting, \textbf{BrowseGuard-Extended} reduces five-attack Write ASR to 0.0369 and Retrieval ASR to 0.3694.
+This browsing result matters beyond the benchmark itself. It shows that the key failure is not only malicious content, but \emph{state revision without sufficient justification}. Once that framing is made explicit, the design problem becomes clearer: the system should not treat every newly seen statement as eligible to rewrite memory, especially when that statement comes from an externally controlled channel. That is the broader role of the write boundary.
 
 \begin{center}
 \captionsetup{type=table}
@@ -235,9 +234,11 @@ Multimodal five-attack & \textbf{BrowseGuard-Extended} & \textbf{0.0945} & \text
 
 \section{Discussion and Future Work}
 
-The paper's main contribution is a write-time view of multimodal agent robustness. Rather than asking only whether poisoned content can be down-ranked at retrieval, we ask whether it should be allowed to become persistent state at all. SAGE-Mem operationalizes that distinction through evidence-versus-belief separation and provenance-aware promotion, and the results show that this boundary changes outcomes that retrieval-time filtering alone does not. Across both LoCoMo-Adv and MM-BrowseComp-Adv, the strongest evidence is not that the system solves every attack surface, but that controlling the write boundary materially changes what survives into memory.
+The paper argues for a write-time view of multimodal agent robustness: the key question is not only whether poisoned content can be filtered at retrieval, but whether it should be allowed to become persistent state. The results support that view, but they also show its limits. On LoCoMo-Adv, integrity is strong but the current operating point loses too much benign recall. On MM-BrowseComp-Adv, the canonical overwrite result is clean, while the broader five-attack result is still incomplete. We therefore view these results as evidence of feasibility rather than definitive superiority.
 
-The limitations are equally important to the overall picture. On LoCoMo-Adv, integrity is strong but the current operating point sacrifices too much benign recall. On MM-BrowseComp-Adv, the canonical overwrite result is clean, while the broader five-attack result shows that extending the same idea to harder multimodal browsing settings remains incomplete. LoCoMo-Adv is synthetic, MM-BrowseComp-Adv uses controlled adversarial injections rather than adversarially rendered browser screenshots, and some supporting analyses come from richer-schema reruns rather than the frozen main artifacts. Next steps are to scale the browsing benchmark to larger case pools and more attack families, harden the five-attack extension against OCR and VPI contamination, test adversarially rendered screenshots, combine write-time and retrieval-time defenses in a hybrid pipeline, and tune the promotion threshold to recover benign recall on LoCoMo-Adv without reopening the overwrite path.
+More broadly, the paper argues for a change in how memory robustness is framed. In stateful agents, security is not only a retrieval problem and not only a generation problem; it is also a memory-formation problem. A memory system should therefore be judged by whether it preserves a meaningful boundary between observation and trusted state.
+
+For multimodal agents, this boundary is especially important because apparent agreement across channels can be misleading. A robust memory layer should therefore reason not only about \emph{what} was observed, but also about \emph{how} it was observed and whether that evidence is genuinely independent. As agent systems move from stateless assistants to persistent actors, memory formation may become a primary security boundary.
 
 \bibliography{references}
 \bibliographystyle{icml2026}
@@ -255,6 +256,18 @@ LoCoMo-Adv is a controlled extension of LoCoMo-10 in which we inject attack obse
 
 \paragraph{MM-BrowseComp-derived multimodal browsing benchmark with five-family adversarial suite (MM-BrowseComp-Adv).}
 The browsing stress test is built from MM-BrowseComp observation traces and then augmented with VLM-backed image observations, page-group provenance, and clean versus adversarial tracks. The corrected pool used in the paper contains 194 cases and 582 QA evaluations after filtering leakage, duplicate traces, and cases without adequate supporting observations. The full adversarial suite covers five attack families: direct answer-overwrite via browser text, adaptive paraphrased overwrite, OCR-channel payload injection, adversarial VLM-caption injection, and visual prompt injection (paired OCR and caption from the same adversarial image group). The canonical two-attack comparison (direct and paraphrased answer-overwrite) corresponds to 388 total write attempts. Focused support reruns additionally save per-QA attack exposure, so per-attack attempt counts in the appendix can exceed the case-level count.
+
+\subsection{Dataset Creation}
+\label{sec:appendix-dataset-creation}
+
+Figure~\ref{fig:appendix-dataset-creation} summarizes the LoCoMo-Adv and MM-BrowseComp-Adv dataset creation pipelines used for the reported artifact sets.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth,height=0.35\textheight,keepaspectratio]{assets/media/dataset_creation.png}
+\caption{LoCoMo-Adv and MM-BrowseComp-Adv dataset creation. Left: LoCoMo-10 conversational traces are extended with multimodal poisoning, visual prompt injection, and noisy/missing-modality variants, then evaluated via frozen poisoned summaries and downstream QA. Right: MM-BrowseComp browsing traces are augmented with VLM-backed observations and a five-family adversarial suite spanning answer overwrite, OCR, vision-caption, and visual prompt injection.}
+\label{fig:appendix-dataset-creation}
+\end{figure*}
 
 \subsection{Task Definition}
 
@@ -314,9 +327,19 @@ The codebase also contains a \texttt{Mem0PlatformMemory} integration, but it is 
 
 \subsection{Compute and Artifact Provenance}
 
-The appendix tables below are backed either by the frozen canonical result artifacts used for the paper or by focused richer-schema support reruns generated with the same reported configuration. When a result comes from a support rerun rather than a canonical main table, we state that explicitly.
+The appendix tables below are backed either by the frozen canonical result artifacts used for the paper or by focused richer-schema support reruns generated with the same reported configuration. When a result comes from a support rerun rather than a canonical main table, we state that explicitly. The anonymous submission includes the benchmark configuration, prompts, and artifact summaries needed to audit the reported tables.
 
 \section{Implementation Details}
+
+\subsection{Detailed Architecture Diagram}
+\label{sec:appendix-sagemem-arch}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{assets/media/sagemem_acrhitecture_v2.png}
+\caption{Detailed SAGE-Mem architecture diagram (expanded view of Figure~\ref{fig:scale-arch-rewrite}).}
+\label{fig:appendix-sagemem-arch}
+\end{figure*}
 
 \subsection{Architecture in Words}
 
