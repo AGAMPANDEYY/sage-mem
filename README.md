@@ -1,11 +1,18 @@
-<p>
-  <a href="https://www.iitr.ac.in/"><img src="assets/logo/iitr_logo.png" alt="IIT Roorkee" height="64" align="left"/></a>
-  <a href="https://dsgiitr.com/"><img src="assets/logo/dsg.png" alt="Data Science Group, IIT Roorkee" height="64" align="left"/></a>
-  <a href="https://icml.cc/"><img src="assets/logo/icml.png" alt="ICML 2026" height="64" align="right"/></a>
-</p>
-<br clear="all"/>
-
-<h1 align="center">SAGE-Mem</h1>
+<table width="100%" border="0">
+  <tr>
+    <td align="left" valign="middle" width="30%">
+      <a href="https://www.iitr.ac.in/"><img src="assets/logo/iitr_logo.png" alt="IIT Roorkee" height="56"/></a>
+      &nbsp;
+      <a href="https://dsgiitr.com/"><img src="assets/logo/dsg.png" alt="Data Science Group, IIT Roorkee" height="56"/></a>
+    </td>
+    <td align="center" valign="middle" width="40%">
+      <h1>SAGE-Mem</h1>
+    </td>
+    <td align="right" valign="middle" width="30%">
+      <a href="https://icml.cc/"><img src="assets/logo/icml.png" alt="ICML 2026" height="56"/></a>
+    </td>
+  </tr>
+</table>
 
 <h3 align="center">Before It Persists: Write-Time Defense for Multimodal Agent Memory</h3>
 
