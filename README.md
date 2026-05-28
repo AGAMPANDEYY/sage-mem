@@ -36,6 +36,46 @@ from 0.564 to 0.369.
 
 ---
 
+## Headline Results
+
+All numbers are 3-seed means computed from the frozen analysis artifacts in [`analysis/`](analysis/).
+`≤ x` denotes a 95% rule-of-three upper bound for 0 observed events at the
+evaluation budget — we do not claim exact zeros. See the paper for full
+caveats and the per-method comparison that disentangles the write boundary
+from retrieval-side filtering.
+
+### LoCoMo-Adv (long-horizon multimodal memory poisoning)
+
+| Method | BCU ↑ | Write ASR ↓ | Retrieval ASR ↓ |
+|:---|---:|---:|---:|
+| MMA *(retrieval-time baseline)* | **0.655** | 1.000 | 0.158 |
+| RSum | 0.410 | 0.004 | 0.008 |
+| **SAGE-Mem** *(ours)* | 0.418 | **0.004** | **≤ 0.002** |
+
+### MM-BrowseComp-Adv (multimodal browsing, five-attack suite)
+
+| Method | BCU ↑ | Write ASR ↓ | Retrieval ASR ↓ |
+|:---|---:|---:|---:|
+| MMA *(baseline)* | 0.000 | 1.000 | 1.000 |
+| SAGE-Mem | **0.198** | 0.255 | 0.564 |
+| **BrowseGuard-Extended** *(ours)* | 0.095 | **0.037** | **0.369** |
+
+### MM-BrowseComp-Adv (narrower 2-attack answer-overwrite specialization)
+
+| Method | BCU ↑ | Write ASR ↓ | Retrieval ASR ↓ |
+|:---|---:|---:|---:|
+| MMA | 0.000 | 1.000 | 1.000 |
+| SAGE-Mem | **0.175** | 0.645 | 0.552 |
+| SAGE-Mem-Browse *(provenance prior only)* | 0.021 | 0.333 | 0.830 |
+| **BrowseGuard** *(ours)* | 0.153 | **≤ 0.003** | **≤ 0.002** |
+
+> Headline takeaway: the write boundary, not retrieval-time filtering alone, is what keeps
+> contamination from hardening into persistent state. Reported Retrieval ASR reflects
+> the combined SAGE-Mem stack (write-time admission + belief promotion + provenance-aware
+> retrieval); we do not isolate the contribution of any single layer.
+
+---
+
 ## Links
 
 - **Paper**: published at the ICML 2026 SCALE Workshop (OpenReview link forthcoming)
