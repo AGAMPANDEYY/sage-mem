@@ -18,8 +18,6 @@
   <em><strong>"Before It Persists: Write-Time Defense for Multimodal Agent Memory"</strong></em>
 </p>
 
----
-
 ## TL;DR
 
 Persistent memory makes multimodal agents more capable, but it also creates a new attack
