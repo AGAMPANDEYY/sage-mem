@@ -1,18 +1,12 @@
 <div>
-<a href="https://icml.cc/">
-  <img src="assets/logo/ICML-logo.png#gh-light-mode-only" alt="ICML 2026" height="88" align="right"/>
-  <img src="assets/logo/ICML-logo_dark.png#gh-dark-mode-only" alt="ICML 2026" height="88" align="right"/>
-</a>
+<a href="https://icml.cc/"><img src="assets/logo/ICML-logo_dark.png" alt="ICML 2026" height="88" align="right"/></a>
 <a href="https://mem0.ai/"><img src="assets/logo/mem0.png" alt="Mem0" height="64" align="left"/></a>
 </div>
 <br clear="left"/>
 
 <div>
 <a href="https://dsgiitr.com/"><img src="assets/logo/dsg.png" alt="Data Science Group, IIT Roorkee" height="64" align="left"/></a>
-<a href="https://www.iitr.ac.in/">
-  <img src="assets/logo/IITRLOGO.png#gh-light-mode-only" alt="IIT Roorkee" height="64" align="left"/>
-  <img src="assets/logo/IITRLOGO_dark.png#gh-dark-mode-only" alt="IIT Roorkee" height="64" align="left"/>
-</a>
+<a href="https://www.iitr.ac.in/"><img src="assets/logo/IITRLOGO_dark.png" alt="IIT Roorkee" height="64" align="left"/></a>
 </div>
 <br clear="all"/>
 
