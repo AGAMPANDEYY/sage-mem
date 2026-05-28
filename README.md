@@ -34,8 +34,6 @@ from 0.564 to 0.369.
 > *For persistent-memory agents, robustness should be evaluated not only at retrieval,
 > but also at the point where observations become persistent state.*
 
----
-
 ## Headline Results
 
 All numbers are 3-seed means computed from the frozen analysis artifacts in [`analysis/`](analysis/).
@@ -74,7 +72,6 @@ from retrieval-side filtering.
 > the combined SAGE-Mem stack (write-time admission + belief promotion + provenance-aware
 > retrieval); we do not isolate the contribution of any single layer.
 
----
 
 ## Links
 
@@ -83,7 +80,6 @@ from retrieval-side filtering.
 - **Code**: this repository
 - **Author**: Agam Pandey — Indian Institute of Technology Roorkee, Mem0
 
----
 
 ## What's in SAGE-Mem
 
@@ -108,7 +104,6 @@ Components in this implementation:
 - **BrowseGuard**: browsing-specific write policy with S1–S4 semantic composite scoring
   across browser, OCR, and vision-caption channels
 
----
 
 ## Reproducing the Paper
 
@@ -175,7 +170,6 @@ them from raw result JSONs:
 python scripts/paper_analysis.py
 ```
 
----
 
 ## Repository Structure
 
@@ -225,7 +219,6 @@ mem-shield/
 └── README.md
 ```
 
----
 
 ## Lifecycle Metrics
 
@@ -251,7 +244,6 @@ SAGE-Mem is a *write-time* defense, so metrics are organized by memory lifecycle
 These four families together separate *admission*, *contamination*, *belief poisoning*,
 and *task utility* rather than collapsing them into a single ASR.
 
----
 
 ## Citation
 
@@ -269,13 +261,11 @@ If you use this code or build on this work, please cite:
 
 A machine-readable citation file is also provided at [`CITATION.cff`](CITATION.cff).
 
----
 
 ## License
 
 Released under the [MIT License](LICENSE).
 
----
 
 ## Acknowledgements
 
