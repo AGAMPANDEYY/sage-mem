@@ -1,370 +1,236 @@
-# SAGE-Mem: Write-Time Governance for Multimodal Agent Memory
+# SAGE-Mem
 
-Research code for an ICML 2026 SCALE workshop submission on **robustness in multimodal noisy memory for AI agents**.
+### Before It Persists: Write-Time Defense for Multimodal Agent Memory
 
-SAGE-Mem is a **governed memory layer**, not a complete autonomous agent stack. It sits between heterogeneous observation sources and a downstream planner, and controls:
-- what gets written into memory,
-- what gets promoted from `evidence` into durable `belief`,
-- what retrieved memory is allowed to support downstream reasoning.
+[![Workshop](https://img.shields.io/badge/ICML_2026-SCALE_Workshop-blue)](https://icml.cc/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 
-The repository studies a specific question:
-
-> How should a multimodal agent defend its persistent memory against adversarial and noisy observations, especially when OCR outputs, image captions, and tool outputs can be mutually dependent or conflicting?
+Official implementation of the ICML 2026 SCALE Workshop paper
+**"Before It Persists: Write-Time Defense for Multimodal Agent Memory"**.
 
 ---
 
-## Why This Matters
+## TL;DR
 
-Retrieval-time defenses help rank or filter memories at query time, but they do **not** protect the memory state itself. Once a poisoned observation has entered memory, it can:
-- survive consolidation,
-- distort later summaries,
-- occupy token budget,
-- increase retrieval noise,
-- and repeatedly burden downstream reranking.
+Persistent memory makes multimodal agents more capable, but it also creates a new attack
+surface: once unsupported content is written into memory, later retrieval and consolidation
+can reuse it as if it were reliable state. **SAGE-Mem** is a write-time memory layer that
+separates transient *evidence* from durable *belief*: observations may enter evidence,
+but they are promoted to belief only when sufficiently supported, independent, and
+non-conflicting. On the LoCoMo-Adv benchmark, SAGE-Mem reduces write admission from
+1.000 (retrieval-time baseline) to 0.004 and retrieval contamination from 0.158 to a
+95% rule-of-three upper bound of ≤ 0.002. On the broader five-attack MM-BrowseComp-Adv
+suite, BrowseGuard-Extended reduces Write ASR from 0.255 to 0.037 and Retrieval ASR
+from 0.564 to 0.369.
 
-For multimodal agents this is worse: OCR and caption outputs from the **same image** may look like corroborating evidence even though they are not independent. SAGE-Mem treats this as a memory-governance problem at the write and belief boundaries, not only a retrieval problem.
-
----
-
-## What SAGE-Mem Does
-
-SAGE-Mem combines:
-- **typed memory**: `evidence`, `belief`, `control`
-- **write-time admission control**
-- **sufficiency-gated evidence → belief promotion**
-- **Bayesian channel trust**
-- **session-relative anomaly detection**
-- **consistency-graph checks**
-- **dependent-evidence handling for multimodal inputs**
-- **provenance-aware retrieval**
-
-This design is meant to protect the **persistent store**, not just the current prompt.
+> *For persistent-memory agents, robustness should be evaluated not only at retrieval,
+> but also at the point where observations become persistent state.*
 
 ---
 
-## Main Research Claims
+## Links
 
-The strongest claims supported by the current evidence are:
-
-1. **Write-time governed memory is a distinct robustness primitive.**
-   On controlled long-horizon multimodal memory benchmarks, SAGE-Mem sharply reduces attack write admission and downstream retrieval contamination compared with retrieval-time filtering alone.
-
-2. **Multimodal agreement is not always evidence of truth.**
-   OCR and caption outputs derived from the same adversarial image can create false corroboration; Visual Prompt Injection (VPI) is a concrete instance of this failure mode.
-
-3. **Lifecycle metrics are required for fair evaluation.**
-   A write-time defense should not be judged only by retrieval-time ASR or final QA utility. The evaluation should separately measure admission, belief formation, retrieval contamination, and downstream completion.
-
-4. **The utility-robustness tradeoff is real.**
-   MMA, the retrieval-time baseline, preserves higher QA utility. SAGE-Mem provides stronger memory-state integrity.
-
-This repo does **not** support the stronger claim that SAGE-Mem is the best overall memory system on all metrics.
+- **Paper**: published at the ICML 2026 SCALE Workshop (OpenReview link forthcoming)
+- **Poster**: see [`assets/poster/`](assets/poster/) (added after the workshop)
+- **Code**: this repository
+- **Author**: Agam Pandey — Indian Institute of Technology Roorkee, Mem0
 
 ---
 
-## Benchmarks
+## What's in SAGE-Mem
 
-### 1. LoCoMo-10 with multimodal adversarial extension
+SAGE-Mem is a **governed memory layer**, not a complete autonomous agent. It sits
+between heterogeneous observation sources and a downstream planner, and controls:
 
-Used for the paper’s primary evidence.
+- what gets written into memory (*write-time admission gate*),
+- what gets promoted from `evidence` into durable `belief` (*belief-promotion gate*),
+- what retrieved memory is allowed to support downstream reasoning (*provenance-aware retrieval*).
 
-Tracks:
-- `main`: main untrusted-channel attack suite
-- `visual_prompt_injection`: multimodal false-corroboration attack
-- `multimodal_robustness`: missing/noisy modality stress
+Components in this implementation:
 
-These are controlled long-horizon memory benchmarks, not natural browsing traces.
-
-### 2. MM-BrowseComp with observation-trace augmentation
-
-Used as an external browsing-style multimodal stress test.
-
-Tracks:
-- `clean`
-- `adversarial`
-
-This benchmark is more realistic as a browsing-memory setting, but currently remains much harsher and less discriminative than the LoCoMo-based evaluations. It should be interpreted carefully.
-
----
-
-## Primary Metrics
-
-SAGE-Mem is a **write-time** defense, so the main metrics are organized by memory lifecycle stage.
-
-### Write / memory-formation metrics
-- `attack_write_admission_rate`
-- `attack_belief_formation_rate`
-- `write_quarantine_per_case`
-
-### Retrieval / corruption metrics
-- `attack_retrieval_rate`
-- `false_belief_rate`
-- `belief_traceability_score`
-- `ASR`
-
-### Downstream utility metric
-- `BenignCompletionUnderAttack (BCU)`
-
-BCU is defined as the **joint per-QA indicator**
-\[
-\mathbf{1}[\text{answer consistent} \land \neg \text{attack survived}]
-\]
-averaged over evaluated QA pairs.
-
-Secondary metrics such as behavioral LLM ASR are useful, but they are not the core evidence for this paper.
+- typed memory (`evidence`, `belief`, `control`)
+- write-time admission control with semantic-guard classification (DATA / DIRECTIVE / METADATA)
+- sufficiency-gated evidence → belief promotion (independent support, non-conflict)
+- Bayesian channel-trust calibration
+- session-relative anomaly detection
+- consistency-graph checks
+- dependent-evidence handling for multimodal inputs (OCR + caption from the same image
+  are *not* independent corroboration)
+- provenance-aware retrieval (channel-trust floor, partition multiplier, conflict gate)
+- **BrowseGuard**: browsing-specific write policy with S1–S4 semantic composite scoring
+  across browser, OCR, and vision-caption channels
 
 ---
 
-## Current Empirical Picture
+## Reproducing the Paper
 
-### Strongest evidence
+All numeric tables in the paper are backed by frozen CSV artifacts checked into
+[`analysis/paper_submission_ready/`](analysis/paper_submission_ready/). Every cell
+referenced in the paper traces back to one of these files.
 
-The strongest paper-quality evidence comes from the full LoCoMo runs:
-- `paper_main_full_v1`
-- `paper_vpi_full_v1`
-- `paper_mmrobust_full_v1`
-- `paper_ablations_full_v1`
-
-Key pattern:
-- **MMA** preserves higher clean and attacked QA utility
-- **SAGE-Mem** strongly improves write-time containment and retrieval integrity
-
-### Main LoCoMo result
-
-| Method | BCU clean | BCU poison | Write ASR | Retrieval | ASR |
-|---|---:|---:|---:|---:|---:|
-| MMA | 0.7500 | 0.6417 | 1.0000 | 0.1333 | 0.1333 |
-| SAGE-Mem | 0.3950 | 0.4600 | 0.0000 | 0.0000 | 0.0000 |
-
-### VPI result
-
-| Method | BCU clean | BCU poison | Write ASR | Retrieval | ASR |
-|---|---:|---:|---:|---:|---:|
-| MMA | 0.7650 | 0.7117 | 1.0000 | 0.0700 | 0.0700 |
-| SAGE-Mem | 0.3800 | 0.3800 | 0.0000 | 0.0000 | 0.0000 |
-
-### MM robustness result
-
-| Method | BCU clean | BCU poison | Write ASR | Retrieval | ASR |
-|---|---:|---:|---:|---:|---:|
-| MMA | 0.7117 | 0.5483 | 1.0000 | 0.2600 | 0.2600 |
-| SAGE-Mem | 0.3950 | 0.4367 | 0.0111 | 0.0050 | 0.0050 |
-
-### MM-BrowseComp
-
-Use the grouped `SAGE-Mem-Browse` / `SAGE-Mem-BrowseGuard` browsing pair as the canonical browsing result set:
-- `paper_mmclean_abr_group_v1`
-- `paper_mmadv_abr_group_v1`
-
-On the 194-case grouped benchmark:
-- generic SAGE-Mem v2: `BCU poison=0.1684`, `Write ASR=0.6314`, `Retrieval=0.5619`, `false_belief=0.0842`
-- `SAGE-Mem-Browse`: `BCU poison=0.0275`, `Write ASR=0.3144`, `Retrieval=0.8265`
-- `SAGE-Mem-BrowseGuard`: `BCU poison=0.1512`, `Write ASR=0.0000`, `Retrieval=0.0000`, `ASR=0.0000`
-- clean BCU: `0.2062` for MMA, `0.1598` for `SAGE-Mem-Browse`, `0.1598` for `SAGE-Mem-BrowseGuard`
-
-The important conclusion is not that browser trust priors alone solve MM-BrowseComp. The stronger result is that browser-specific claim typing matters: `SAGE-Mem-Browse` reduces write admission but still allows heavy retrieval contamination, while `SAGE-Mem-BrowseGuard` blocks browser-sourced answer-claim writes and preserves near-clean utility under attack.
-
-Additional secondary browsing ablation:
-- `paper_mmclean_abr_sem_v1`
-- `paper_mmadv_abr_sem_v1`
-
-These semantic observation-group reruns are useful for mechanism analysis, but they are **not** the canonical paper pair. They preserve the `SAGE-Mem-BrowseGuard` top-line result and slightly strengthen page-group signal activity, but they do not change the main interpretation that the structured browser claim gate is the dominant mechanism.
-
----
-
-## Submission-Ready Analysis Bundle
-
-The paper-facing tables and figures are generated from the frozen local final artifacts by:
+### 1. Install
 
 ```bash
-./.venv/bin/python scripts/paper_analysis.py
+git clone https://github.com/AGAMPANDEYY/mem-shield.git
+cd mem-shield
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Output directory:
-- [analysis/paper_submission_ready](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready)
+The default configuration uses a deterministic 256-dimensional hashed-text embedder
+and does not require external API keys. The optional LLM guard and LLM-as-judge
+evaluation paths require either `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
 
-Important outputs:
-- [submission_ready_summary.md](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/submission_ready_summary.md)
-- [schema_gap_report.md](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/schema_gap_report.md)
-- [main_clean_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/main_clean_table.csv)
-- [main_poison_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/main_poison_table.csv)
-- [browsing_clean_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/browsing_clean_table.csv)
-- [browsing_adversarial_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/browsing_adversarial_table.csv)
-- [systems_cost_table.csv](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/systems_cost_table.csv)
-- [pareto_locomo_bcu_vs_write_asr.svg](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/pareto_locomo_bcu_vs_write_asr.svg)
-- [pareto_browsing_bcu_vs_write_asr.svg](/Users/agampandey/work/mem-shield/analysis/paper_submission_ready/pareto_browsing_bcu_vs_write_asr.svg)
-
-These are the files to use when populating the paper quickly and consistently.
-
-Important limitation:
-- the frozen canonical JSONs still do **not** include per-row `seed` or `attack_type`, so exact per-attack tables, seed-level confidence intervals, and benign-write-recall analyses still require a targeted rerun with the richer schema now patched into the codebase
-
----
-
-## Authoritative Result Provenance
-
-The tracked local paper artifact set is:
-
-- [final_paper_results_20260410](/Users/agampandey/work/mem-shield/final_paper_results_20260410)
-
-Use the following mapping as the authoritative latest result for each experiment family:
-
-| Local artifact | Source run ID | Notes |
-|---|---|---|
-| `sagemem_main_llm.json` | `paper_main_full_v1` | main LoCoMo + LLM-eval |
-| `sagemem_v2_ablations.json` | `paper_ablations_full_v1` | main LoCoMo ablations |
-| `sagemem_vpi_llm.json` | `paper_vpi_full_v1` | VPI-only run |
-| `sagemem_multimodal_robustness_ablations.json` | `paper_mmrobust_full_v1` | noisy/missing-modality robustness |
-| `sagemem_mm_browsecomp_clean.json` | `paper_mmclean_h5_v1` | baseline clean MM-BrowseComp rerun with `SAGE-Mem-Browse` |
-| `sagemem_mm_browsecomp_adversarial.json` | `paper_mmadv_h5_v1` | baseline adversarial MM-BrowseComp rerun with `SAGE-Mem-Browse` |
-| `sagemem_mm_browsecomp_abr_clean.json` | `paper_mmclean_abr_group_v1` | canonical clean grouped browsing run with `SAGE-Mem-Browse` and `SAGE-Mem-BrowseGuard` |
-| `sagemem_mm_browsecomp_abr_adversarial.json` | `paper_mmadv_abr_group_v1` | canonical adversarial grouped browsing run with injection + adaptive attacks and `SAGE-Mem-Browse` / `SAGE-Mem-BrowseGuard` |
-| `sagemem_mm_browsecomp_abr_clean_semantic.json` | `paper_mmclean_abr_sem_v1` | semantic observation-group clean rerun; secondary ablation |
-| `sagemem_mm_browsecomp_abr_adversarial_semantic.json` | `paper_mmadv_abr_sem_v1` | semantic observation-group adversarial rerun; secondary ablation |
-
-For the paper, the canonical browsing pair is `paper_mmclean_abr_group_v1` / `paper_mmadv_abr_group_v1`.
-
-Exact local file paths:
-- [sagemem_main_llm.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_main_llm.json)
-- [sagemem_v2_ablations.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_v2_ablations.json)
-- [sagemem_vpi_llm.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_vpi_llm.json)
-- [sagemem_multimodal_robustness_ablations.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_multimodal_robustness_ablations.json)
-- [sagemem_mm_browsecomp_clean.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_clean.json)
-- [sagemem_mm_browsecomp_adversarial.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_adversarial.json)
-- [sagemem_mm_browsecomp_abr_clean.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_clean.json)
-- [sagemem_mm_browsecomp_abr_adversarial.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_adversarial.json)
-- [sagemem_mm_browsecomp_abr_clean_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_clean_semantic.json)
-- [sagemem_mm_browsecomp_abr_adversarial_semantic.json](/Users/agampandey/work/mem-shield/final_paper_results_20260410/sagemem_mm_browsecomp_abr_adversarial_semantic.json)
-
-MM-BrowseComp was rerun after the case-construction audit on the corrected 194-case leakage-clean pool.
-
----
-
-## Project Layout
-
-```text
-configs/
-  default_trust_config.json
-
-data/
-  MM-BrowseComp/
-  mm_browsecomp_traces_all.jsonl
-  mm_browsecomp_cases_filtered.jsonl
-  mm_browsecomp_cases_augmented_openai.jsonl
-
-datasets/
-  publication-facing dataset bundle
-  - clean LoCoMo source
-  - LoCoMo attack-generation manifests
-  - MM-BrowseComp official rows
-  - MM-BrowseComp traces
-  - filtered clean MM-BrowseComp cases
-  - adversarial benchmark manifests
-
-results/
-  <RUN_ID>/
-
-scripts/
-  analyze_run.py
-
-src/
-  mma_bench_suite.py
-  eval_judge.py
-  build_mm_browsecomp_traces.py
-  prepare_mm_browsecomp_cases.py
-
-run_eval.py
-Makefile
-paper_draft.md
-COMMANDS.md
-```
-
----
-
-## Reproducible Workflow
-
-Use `make` as the primary interface.
-
-### 1. Tests
+### 2. Verify the install
 
 ```bash
 make test
 ```
 
-### 2. Core LoCoMo paper runs
+### 3. LoCoMo-Adv runs
 
 ```bash
-make full-main-llm RUN_ID=paper_main_full_v1
-make full-v2-ablations RUN_ID=paper_ablations_full_v1
-make full-vpi-llm RUN_ID=paper_vpi_full_v1
+make full-main-llm        RUN_ID=paper_main_full_v1
+make full-v2-ablations    RUN_ID=paper_ablations_full_v1
+make full-vpi-llm         RUN_ID=paper_vpi_full_v1
 make full-mm-robust-ablations RUN_ID=paper_mmrobust_full_v1
 ```
 
-### 3. MM-BrowseComp pipeline
-
-Build traces:
+### 4. MM-BrowseComp-Adv pipeline
 
 ```bash
+# Build and filter traces
 make build-mm-traces
 make filter-mm-cases
-```
 
-Frozen augmented browsing cases reused across clean/adversarial reruns:
-
-```text
-data/mm_browsecomp_cases_augmented_openai.jsonl
-```
-
-Run clean and adversarial tracks separately:
-
-```bash
-make full-mm-clean RUN_ID=paper_mmclean_h5_v1
-make full-mm-adversarial RUN_ID=paper_mmadv_h5_v1
-make full-mm-abr-clean RUN_ID=paper_mmclean_abr_group_v1
+# Clean and adversarial tracks
+make full-mm-abr-clean       RUN_ID=paper_mmclean_abr_group_v1
 make full-mm-abr-adversarial RUN_ID=paper_mmadv_abr_group_v1
 ```
 
-Secondary semantic observation-group reruns copied from EC2:
-
-```text
-paper_mmclean_abr_sem_v1
-paper_mmadv_abr_sem_v1
-```
-
-### 4. Analysis
+### 5. Inspect a run
 
 ```bash
 make analyze-run RUN_ID=paper_main_full_v1
 ```
 
-The analyzer reads only `results/<RUN_ID>/` and renders a Rich summary table for every JSON in that folder.
+The analyzer reads only `results/<RUN_ID>/` and renders a summary table for every JSON
+in that folder.
+
+### 6. Regenerate the paper-facing tables
+
+The frozen CSVs underlying the paper tables live in
+[`analysis/paper_submission_ready/`](analysis/paper_submission_ready/). To regenerate
+them from raw result JSONs:
+
+```bash
+python scripts/paper_analysis.py
+```
 
 ---
 
-## MM-BrowseComp Caveat
+## Repository Structure
 
-MM-BrowseComp should currently be described carefully.
-
-What is true:
-- the clean and adversarial tracks are now separate,
-- image observations are captioned with OpenAI vision,
-- the frozen augmented-case file `data/mm_browsecomp_cases_augmented_openai.jsonl` is reused across reruns,
-- the grouped `SAGE-Mem-Browse` / `SAGE-Mem-BrowseGuard` benchmark is the right browsing comparison for the paper,
-- `SAGE-Mem-BrowseGuard` achieves complete blocking on the current browser overwrite benchmark.
-
-What remains limited:
-- the dominant `SAGE-Mem-BrowseGuard` mechanism is the structured browser claim gate, not page-group semantic conflict alone,
-- the benchmark covers browser-sourced answer overwrites, not all web-agent attack classes,
-- trace coverage and VLM-caption quality remain dataset constraints.
-
-So MM-BrowseComp should be framed as evidence that browsing-derived external text needs browser-specific write governance, with `SAGE-Mem-BrowseGuard` showing that structured claim typing is stronger than vocabulary-based priors.
+```
+mem-shield/
+├── src/                          # SAGE-Mem implementation
+│   ├── memory.py                 # typed memory + write/promote/retrieve
+│   ├── guard_llm.py              # single-agent LLM write guard
+│   ├── guard_ensemble.py         # skeptic-advocate ensemble (paired classifiers)
+│   ├── trust_calibration.py      # Bayesian channel trust updates
+│   ├── anomaly_detector.py       # session-relative anomaly scoring
+│   ├── consistency_graph.py      # cross-write consistency checks
+│   ├── mma_bench_suite.py        # benchmark harness
+│   ├── eval_judge.py             # LLM-as-judge evaluation
+│   ├── build_mm_browsecomp_traces.py
+│   ├── prepare_mm_browsecomp_cases.py
+│   └── ...
+├── scripts/                      # reproducibility + analysis scripts
+│   ├── paper_analysis.py         # regenerate paper-facing CSVs
+│   ├── analyze_run.py            # inspect a single run
+│   ├── audit_final_results.py    # sanity-check final paper artifacts
+│   ├── generate_paper_assets.py  # plots / figures
+│   ├── sweep_pareto.py           # operating-point sweeps
+│   ├── eval_buried_payload.py    # buried-payload attack evaluation
+│   └── eval_guard_llm.py         # LLM guard evaluation
+├── configs/
+│   └── default_trust_config.json # source priors and threshold defaults
+├── analysis/
+│   └── paper_submission_ready/   # frozen CSVs backing every paper table
+├── datasets/                     # publication-facing dataset bundle (gitignored bulk data)
+│   ├── locomo/                   # LoCoMo-Adv inputs
+│   └── mm_browsecomp/            # MM-BrowseComp-Adv inputs
+├── data/                         # working data directory referenced by scripts
+├── assets/
+│   ├── media/                    # paper figures (architecture, dataset creation)
+│   ├── plots/                    # Pareto plots
+│   └── poster/                   # workshop poster (after the workshop)
+├── tests/                        # unit tests
+├── Makefile                      # reproducibility entrypoint
+├── run_eval.py                   # main evaluation script
+├── requirements.txt
+├── COMMANDS.md                   # detailed command reference
+├── CITATION.cff
+├── LICENSE
+└── README.md
+```
 
 ---
 
-## Paper-Appropriate Positioning
+## Lifecycle Metrics
 
-The most defensible workshop framing is:
+SAGE-Mem is a *write-time* defense, so metrics are organized by memory lifecycle stage.
 
-> SAGE-Mem introduces write-time governance for multimodal agent memory and shows that preventing unsupported observations from hardening into durable beliefs yields stronger memory-state integrity than retrieval-only filtering, especially under multimodal prompt injection and noisy/missing modalities, albeit with a utility tradeoff.
+**Write-time metrics**
+- `attack_write_admission_rate` (Write ASR) — fraction of injected attack observations
+  admitted past the write boundary
+- `attack_belief_formation_rate` — fraction of evaluations where attack-derived content
+  is promoted into belief memory
+- `write_quarantine_per_case`
 
-That is the claim this repository currently supports.
+**Retrieval-time metrics**
+- `attack_retrieval_rate` (Retrieval ASR) — fraction of QA evaluations in which
+  attack-derived content appears in the retrieved set
+- `false_belief_rate` — fraction of retrieved belief items descending from poisoned lineage
+- `belief_traceability_score`
+
+**Downstream utility**
+- `BCU` (Benign Completion Under Attack) — joint per-QA indicator
+  `1[answer consistent ∧ ¬attack survived]`, averaged across evaluations
+
+These four families together separate *admission*, *contamination*, *belief poisoning*,
+and *task utility* rather than collapsing them into a single ASR.
+
+---
+
+## Citation
+
+If you use this code or build on this work, please cite:
+
+```bibtex
+@inproceedings{pandey2026sagemem,
+  title     = {Before It Persists: Write-Time Defense for Multimodal Agent Memory},
+  author    = {Pandey, Agam},
+  booktitle = {ICML 2026 Workshop on SCALE},
+  year      = {2026},
+  url       = {https://github.com/AGAMPANDEYY/mem-shield}
+}
+```
+
+A machine-readable citation file is also provided at [`CITATION.cff`](CITATION.cff).
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+---
+
+## Acknowledgements
+
+This work was conducted at the Indian Institute of Technology Roorkee and Mem0. The
+LoCoMo and MM-BrowseComp base benchmarks belong to their respective authors; this
+repository contributes the adversarial extensions (LoCoMo-Adv, MM-BrowseComp-Adv) and
+the SAGE-Mem write-time defense.

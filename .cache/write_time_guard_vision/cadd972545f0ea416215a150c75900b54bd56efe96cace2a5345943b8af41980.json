@@ -1,7 +1,0 @@
-{
-  "image_url": "https://raw.githubusercontent.com/MMBrowseComp/MM-BrowseComp/refs/heads/main/MMBC_images/37_2.png",
-  "question_context": "In 2024, a highly popular game was released in China. Its style and genre are similar to the games shown in the pictures, but its story is set against the backdrop of Chinese mythology. In this game, there is a tiger character who is skilled in forging weapons and armor, as well as in combat. The question is: what weapon does this character carry at its waist?",
-  "text": "The image features a scene with the following details:\n\n1. **Character**: A woman with long, braided hair dressed in white clothing.\n2. **Creature**: She is sitting on a large, gray creature, possibly resembling a goat or an animal with horns.\n3. **Environment**: The background consists of tall grasses and appears to be a natural setting, with hints of a more mythical or fantasy theme.\n\nThere are no visible weapons or specific details related to the character's attire that would answer the question about the weapon the tiger character carries at its waist in the described game. No text, numbers, or additional context that would be useful for the question provided is present in the image.",
-  "backend": "openai",
-  "model": "gpt-4o-mini"
-}

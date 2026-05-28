@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this code or build on this work, please cite the paper below."
+title: "Before It Persists: Write-Time Defense for Multimodal Agent Memory"
+authors:
+  - family-names: Pandey
+    given-names: Agam
+    email: agam_p@ce.iitr.ac.in
+    affiliation: "Indian Institute of Technology Roorkee; Mem0"
+year: 2026
+url: "https://github.com/AGAMPANDEYY/mem-shield"
+repository-code: "https://github.com/AGAMPANDEYY/mem-shield"
+keywords:
+  - multimodal agents
+  - agent memory
+  - robustness
+  - prompt injection
+  - write-time defense
+license: MIT
+preferred-citation:
+  type: conference-paper
+  title: "Before It Persists: Write-Time Defense for Multimodal Agent Memory"
+  authors:
+    - family-names: Pandey
+      given-names: Agam
+  year: 2026
+  collection-title: "Proceedings of the ICML 2026 SCALE Workshop"
+  conference:
+    name: "ICML 2026 SCALE Workshop"
+  url: "https://github.com/AGAMPANDEYY/mem-shield"

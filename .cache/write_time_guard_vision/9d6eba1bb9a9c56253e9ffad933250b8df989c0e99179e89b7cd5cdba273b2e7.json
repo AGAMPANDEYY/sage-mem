@@ -1,7 +1,0 @@
-{
-  "image_url": "https://raw.githubusercontent.com/MMBrowseComp/MM-BrowseComp/refs/heads/main/MMBC_images/9.png",
-  "question_context": "This photo was taken in February 2023. In the final World Cup match that the commemorated person participated in, what was the jersey number of the opposing player who was marking the player who assisted his first goal?",
-  "text": "The image shows a public space with greenery, including bushes and small trees. There is a monument in the center featuring a figure holding a soccer ball, indicating that it is likely a memorial related to soccer. The background contains buildings with signs, and there are people walking in the vicinity. The sky is partly cloudy.\n\nDetails visible:\n1. The monument has a statue of a person holding a soccer ball, indicating a connection to soccer.\n2. Two individuals are seen walking in the foreground.\n3. There are lampposts and planters around the area.\n\nNo specific details within the image directly help answer the question regarding jersey numbers or players. Further context about the commemorated person or the specific World Cup match would be needed to answer the question.",
-  "backend": "openai",
-  "model": "gpt-4o-mini"
-}
