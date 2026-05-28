@@ -1,13 +1,21 @@
-# SAGE-Mem
+<p align="center">
+  <img src="assets/logo/ICML-logo.png" alt="ICML 2026" width="220"/>
+</p>
 
-### Before It Persists: Write-Time Defense for Multimodal Agent Memory
+<h1 align="center">SAGE-Mem</h1>
 
-[![Workshop](https://img.shields.io/badge/ICML_2026-SCALE_Workshop-blue)](https://icml.cc/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+<h3 align="center">Before It Persists: Write-Time Defense for Multimodal Agent Memory</h3>
 
-Official implementation of the ICML 2026 SCALE Workshop paper
-**"Before It Persists: Write-Time Defense for Multimodal Agent Memory"**.
+<p align="center">
+  <a href="https://icml.cc/"><img src="https://img.shields.io/badge/ICML_2026-SCALE_Workshop-blue" alt="Workshop"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"/></a>
+</p>
+
+<p align="center">
+  Official implementation of the ICML 2026 SCALE Workshop paper<br/>
+  <em><strong>"Before It Persists: Write-Time Defense for Multimodal Agent Memory"</strong></em>
+</p>
 
 ---
 
