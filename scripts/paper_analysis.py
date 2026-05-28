@@ -124,8 +124,8 @@ def build_main_tables(results_dir: Path, out_dir: Path) -> None:
     clean_rows = select_rows(main_summary, "clean", main_conditions)
     poison_rows = select_rows(main_summary, "poisoned", main_conditions)
     fieldnames = ["condition", "BCU", "WriteASR", "BeliefASR", "Retrieval", "ASR", "FalseBelief", "n_cases", "n_qa_evals"]
-    write_csv(out_dir / "main_clean_table.csv", clean_rows, fieldnames)
-    write_csv(out_dir / "main_poison_table.csv", poison_rows, fieldnames)
+    write_csv(out_dir / "locomo_adv" / "main_clean_table.csv", clean_rows, fieldnames)
+    write_csv(out_dir / "locomo_adv" / "main_poison_table.csv", poison_rows, fieldnames)
 
 
 def build_browsing_tables(results_dir: Path, out_dir: Path) -> None:
@@ -148,10 +148,10 @@ def build_browsing_tables(results_dir: Path, out_dir: Path) -> None:
         "structured_claim_gate_fire_count_avg", "group_divergence_fire_count_avg",
         "group_outlier_score_avg", "memory_conflict_score_avg", "n_cases", "n_qa_evals",
     ]
-    write_csv(out_dir / "browsing_clean_table.csv", clean_rows, fieldnames)
-    write_csv(out_dir / "browsing_adversarial_table.csv", adv_rows, fieldnames)
-    write_csv(out_dir / "browsing_clean_semantic_table.csv", sem_clean_rows, fieldnames)
-    write_csv(out_dir / "browsing_adversarial_semantic_table.csv", sem_adv_rows, fieldnames)
+    write_csv(out_dir / "mm_browsecomp_adv" / "browsing_clean_table.csv", clean_rows, fieldnames)
+    write_csv(out_dir / "mm_browsecomp_adv" / "browsing_adversarial_table.csv", adv_rows, fieldnames)
+    write_csv(out_dir / "mm_browsecomp_adv" / "browsing_clean_semantic_table.csv", sem_clean_rows, fieldnames)
+    write_csv(out_dir / "mm_browsecomp_adv" / "browsing_adversarial_semantic_table.csv", sem_adv_rows, fieldnames)
 
 
 def build_attack_proxy_tables(results_dir: Path, out_dir: Path) -> None:
@@ -185,7 +185,7 @@ def build_attack_proxy_tables(results_dir: Path, out_dir: Path) -> None:
         "derived_memory_corruption_rate",
         "attack_write_admission_rate",
     ]
-    write_csv(out_dir / "attack_proxy_breakdown.csv", rows, fieldnames)
+    write_csv(out_dir / "locomo_adv" / "attack_proxy_breakdown.csv", rows, fieldnames)
 
 
 def build_systems_cost_table(results_dir: Path, out_dir: Path) -> None:
@@ -463,8 +463,8 @@ def build_pareto_artifacts(results_dir: Path, out_dir: Path) -> None:
             "SAGEMemV2_ABR",
         ],
     )
-    write_svg_pareto(out_dir / "pareto_locomo_bcu_vs_write_asr.svg", "LoCoMo Pareto: BCU vs Write ASR", locomo_rows, "WriteASR", "BCU")
-    write_svg_pareto(out_dir / "pareto_browsing_bcu_vs_write_asr.svg", "MM-BrowseComp Pareto: BCU vs Write ASR", browse_rows, "WriteASR", "BCU")
+    write_svg_pareto(out_dir / "plots" / "pareto_locomo_bcu_vs_write_asr.svg", "LoCoMo Pareto: BCU vs Write ASR", locomo_rows, "WriteASR", "BCU")
+    write_svg_pareto(out_dir / "plots" / "pareto_browsing_bcu_vs_write_asr.svg", "MM-BrowseComp Pareto: BCU vs Write ASR", browse_rows, "WriteASR", "BCU")
 
 
 def build_schema_gap_report(results_dir: Path, out_dir: Path) -> None:
@@ -550,16 +550,19 @@ def build_submission_summary(results_dir: Path, out_dir: Path) -> None:
 def main() -> int:
     args = parse_args()
     ensure_dir(args.out_dir)
+    ensure_dir(args.out_dir / "locomo_adv")
+    ensure_dir(args.out_dir / "mm_browsecomp_adv")
+    ensure_dir(args.out_dir / "plots")
     build_main_tables(args.results_dir, args.out_dir)
     build_browsing_tables(args.results_dir, args.out_dir)
     build_attack_proxy_tables(args.results_dir, args.out_dir)
     build_systems_cost_table(args.results_dir, args.out_dir)
-    build_seed_stats_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="main_focus_seed_stats.csv")
-    build_seed_stats_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="browse_focus_seed_stats.csv")
-    build_per_attack_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="main_focus_per_attack_breakdown.csv")
-    build_per_attack_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="browse_focus_per_attack_breakdown.csv")
-    build_benign_recall_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="main_focus_benign_write_recall.csv")
-    build_benign_recall_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="browse_focus_benign_write_recall.csv")
+    build_seed_stats_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="locomo_adv/main_focus_seed_stats.csv")
+    build_seed_stats_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="mm_browsecomp_adv/browse_focus_seed_stats.csv")
+    build_per_attack_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="locomo_adv/main_focus_per_attack_breakdown.csv")
+    build_per_attack_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="mm_browsecomp_adv/browse_focus_per_attack_breakdown.csv")
+    build_benign_recall_table(args.results_dir, args.out_dir, filename=PAPER_FILES["main_focus_schema"], benchmark="locomo", split="poisoned", out_name="locomo_adv/main_focus_benign_write_recall.csv")
+    build_benign_recall_table(args.results_dir, args.out_dir, filename=PAPER_FILES["browse_adv_focus_schema"], benchmark="mm_browsecomp", split="poisoned", out_name="mm_browsecomp_adv/browse_focus_benign_write_recall.csv")
     build_pareto_artifacts(args.results_dir, args.out_dir)
     build_schema_gap_report(args.results_dir, args.out_dir)
     build_submission_summary(args.results_dir, args.out_dir)
