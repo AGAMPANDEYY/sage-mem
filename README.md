@@ -66,7 +66,7 @@ Components in this implementation:
 ## Reproducing the Paper
 
 All numeric tables in the paper are backed by frozen CSV artifacts checked into
-[`analysis/paper_submission_ready/`](analysis/paper_submission_ready/). Every cell
+[`analysis/`](analysis/). Every cell
 referenced in the paper traces back to one of these files.
 
 ### 1. Install
@@ -121,7 +121,7 @@ in that folder.
 ### 6. Regenerate the paper-facing tables
 
 The frozen CSVs underlying the paper tables live in
-[`analysis/paper_submission_ready/`](analysis/paper_submission_ready/). To regenerate
+[`analysis/`](analysis/). To regenerate
 them from raw result JSONs:
 
 ```bash
@@ -156,8 +156,10 @@ mem-shield/
 │   └── eval_guard_llm.py         # LLM guard evaluation
 ├── configs/
 │   └── default_trust_config.json # source priors and threshold defaults
-├── analysis/
-│   └── paper_submission_ready/   # frozen CSVs backing every paper table
+├── analysis/                     # frozen CSVs backing every paper table
+│   ├── locomo_adv/               # LoCoMo-Adv tables
+│   ├── mm_browsecomp_adv/        # MM-BrowseComp-Adv tables
+│   └── plots/                    # Pareto SVGs
 ├── datasets/                     # publication-facing dataset bundle (gitignored bulk data)
 │   ├── locomo/                   # LoCoMo-Adv inputs
 │   └── mm_browsecomp/            # MM-BrowseComp-Adv inputs

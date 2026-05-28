@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("analysis/paper_submission_ready"),
+        default=Path("analysis"),
         help="Output directory for CSV/Markdown/SVG artifacts.",
     )
     return parser.parse_args()

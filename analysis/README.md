@@ -1,4 +1,4 @@
-# Paper Submission-Ready Artifacts
+# Paper Analysis Artifacts
 
 Frozen, small CSV/SVG files that back **every numerical claim** in the
 ICML 2026 SCALE workshop paper *"Before It Persists: Write-Time Defense for
@@ -9,7 +9,7 @@ Each cell printed in the paper traces back to one of the files here.
 ## Layout
 
 ```
-paper_submission_ready/
+analysis/
 ├── locomo_adv/              # LoCoMo-Adv benchmark artifacts
 ├── mm_browsecomp_adv/       # MM-BrowseComp-Adv benchmark artifacts
 ├── plots/                   # Pareto SVGs used in the appendix
