@@ -1,11 +1,23 @@
-<div>
-<a href="https://www.iitr.ac.in/"><img src="assets/logo/iitr_logo.png" alt="IIT Roorkee" height="64" align="left"/></a>
-<a href="https://dsgiitr.com/"><img src="assets/logo/dsg.png" alt="Data Science Group, IIT Roorkee" height="64" align="left"/></a>
-<a href="https://icml.cc/"><img src="assets/logo/icml.png" alt="ICML 2026" height="64" align="right"/></a>
+<p align="center">
+  <a href="https://mem0.ai/"><img src="assets/logo/mem0.png" alt="Mem0" height="72"/></a>
+</p>
+
+<p align="center">
+  <a href="https://dsgiitr.com/"><img src="assets/logo/dsg.png" alt="Data Science Group, IIT Roorkee" height="72"/></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://www.iitr.ac.in/"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/IITRLOGO_dark.png">
+    <img src="assets/logo/IITRLOGO.png" alt="IIT Roorkee" height="72">
+  </picture></a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://icml.cc/"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/ICML-logo_dark.png">
+    <img src="assets/logo/ICML-logo.png" alt="ICML 2026" height="72">
+  </picture></a>
+</p>
+
 <p align="center"><font size="7"><b>SAGE-Mem</b></font></p>
 <p align="center"><b>Before It Persists: Write-Time Defense for Multimodal Agent Memory</b></p>
-</div>
-<br clear="all"/>
 
 <p align="center">
   <a href="https://icml.cc/"><img src="https://img.shields.io/badge/ICML_2026-SCALE_Workshop-blue" alt="Workshop"/></a>
