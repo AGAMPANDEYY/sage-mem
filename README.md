@@ -1,6 +1,8 @@
 <div>
 <a href="https://icml.cc/"><img src="assets/logo/ICML-logo_dark.png" alt="ICML 2026" height="88" align="right"/></a>
 <a href="https://mem0.ai/"><img src="assets/logo/mem0.png" alt="Mem0" height="64" align="left"/></a>
+<p align="center"><font size="7"><b>SAGE-Mem</b></font></p>
+<p align="center"><b>Before It Persists: Write-Time Defense for Multimodal Agent Memory</b></p>
 </div>
 <br clear="left"/>
 
@@ -9,9 +11,6 @@
 <a href="https://www.iitr.ac.in/"><img src="assets/logo/IITRLOGO_dark.png" alt="IIT Roorkee" height="64" align="left"/></a>
 </div>
 <br clear="all"/>
-
-<p align="center"><font size="7"><b>SAGE-Mem</b></font></p>
-<p align="center"><b>Before It Persists: Write-Time Defense for Multimodal Agent Memory</b></p>
 
 <p align="center">
   <a href="https://icml.cc/"><img src="https://img.shields.io/badge/ICML_2026-SCALE_Workshop-blue" alt="Workshop"/></a>
