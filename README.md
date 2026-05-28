@@ -1,6 +1,9 @@
-<p align="center">
-  <img src="assets/logo/ICML-logo.png" alt="ICML 2026" width="220"/>
+<p>
+  <a href="https://www.iitr.ac.in/"><img src="assets/logo/iitr.png" alt="IIT Roorkee" height="64" align="left"/></a>
+  <a href="https://dsgiitr.com/"><img src="assets/logo/dsg.png" alt="Data Science Group, IIT Roorkee" height="64" align="left"/></a>
+  <a href="https://icml.cc/"><img src="assets/logo/icml.png" alt="ICML 2026" height="64" align="right"/></a>
 </p>
+<br clear="all"/>
 
 <h1 align="center">SAGE-Mem</h1>
 
