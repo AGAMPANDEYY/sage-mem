@@ -113,8 +113,8 @@ referenced in the paper traces back to one of these files.
 ### 1. Install
 
 ```bash
-git clone https://github.com/AGAMPANDEYY/mem-shield.git
-cd mem-shield
+git clone https://github.com/AGAMPANDEYY/sage-mem.git
+cd sage-mem
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -173,7 +173,7 @@ python scripts/paper_analysis.py
 ## Repository Structure
 
 ```
-mem-shield/
+sage-mem/
 ├── src/                          # SAGE-Mem implementation
 │   ├── memory.py                 # typed memory + write/promote/retrieve
 │   ├── guard_llm.py              # single-agent LLM write guard
@@ -254,7 +254,7 @@ If you use this code or build on this work, please cite:
   author    = {Pandey, Agam},
   booktitle = {ICML 2026 Workshop on SCALE},
   year      = {2026},
-  url       = {https://github.com/AGAMPANDEYY/mem-shield}
+  url       = {https://github.com/AGAMPANDEYY/sage-mem}
 }
 ```
 

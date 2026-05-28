@@ -7,8 +7,8 @@ authors:
     email: agam_p@ce.iitr.ac.in
     affiliation: "Indian Institute of Technology Roorkee; Mem0"
 year: 2026
-url: "https://github.com/AGAMPANDEYY/mem-shield"
-repository-code: "https://github.com/AGAMPANDEYY/mem-shield"
+url: "https://github.com/AGAMPANDEYY/sage-mem"
+repository-code: "https://github.com/AGAMPANDEYY/sage-mem"
 keywords:
   - multimodal agents
   - agent memory
@@ -26,4 +26,4 @@ preferred-citation:
   collection-title: "Proceedings of the ICML 2026 SCALE Workshop"
   conference:
     name: "ICML 2026 SCALE Workshop"
-  url: "https://github.com/AGAMPANDEYY/mem-shield"
+  url: "https://github.com/AGAMPANDEYY/sage-mem"
