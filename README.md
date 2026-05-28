@@ -76,7 +76,6 @@ from retrieval-side filtering.
 ## Links
 
 - **Paper**: published at the ICML 2026 SCALE Workshop (OpenReview link forthcoming)
-- **Poster**: see [`assets/poster/`](assets/poster/) (added after the workshop)
 - **Code**: this repository
 - **Author**: Agam Pandey — Indian Institute of Technology Roorkee, Mem0
 
