@@ -1,24 +1,63 @@
+# --- Python ---
 .venv/
 __pycache__/
 *.pyc
 *.pyo
-.DS_Store
 *.egg-info/
 dist/
 build/
+
+# --- OS / IDE ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- Secrets ---
 .env
+.env.*
+
+# --- Tool caches / agent state ---
+.cache/
+.claude/
+
+# --- Paper artifacts (kept private; paper published at venue) ---
+paper/
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.pptx
+
+# Top-level paper files (we keep them locally; move to paper/ during cleanup)
+icml_scale.pdf
+icml_scale.tex
+icml2026.sty
+references.bib
+
+# --- Local working directories ---
+results/
 data/locomo10.json
 data/locomo/
-MMA/
-.env
-
-# Generated caches and local multimodal artifacts
-.cache/
-src/__pycache__/
+data/MM-BrowseComp/
+data/mm_browsecomp_*.jsonl
 data/mm_browsecomp_pilot/
+data/mmbc_browser_artifacts/
 
-results/*
+# Large dataset files (keep folder structure + READMEs only)
+datasets/locomo/clean/*.json
+datasets/mm_browsecomp/clean/*.jsonl
+datasets/mm_browsecomp/traces/*.jsonl
+datasets/mm_browsecomp/adversarial/*.jsonl
 
-#paper
+# --- Large result artifacts (attach to GitHub release if needed) ---
+final_paper_results_*/
+
+# --- Old / archived ---
+MMA/
 paper_draft.md
-.claude/*
+"icml2026 (1)/"

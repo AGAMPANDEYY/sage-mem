@@ -1,7 +1,0 @@
-{
-  "image_url": "https://raw.githubusercontent.com/MMBrowseComp/MM-BrowseComp/refs/heads/main/MMBC_images/5.png",
-  "question_context": "The team represented by the stadium in the background of the picture defeated an opposing team 2:0 in a formal match in 2025, with goals scored around the 4-minute mark and the 31-minute mark. After the second goal, with which numbered player did the goal scorer high-five to celebrate?",
-  "text": "1. **Visible Text and Numbers**: The scarf displays \"1993\" prominently, as well as the team name \"QHNFC\" in a shield logo design.\n2. **Team Colors**: The scarf is predominantly orange and features white stripes.\n3. **Stadium**: The background shows a stadium with the name \"TSG Hoffenheim\" visible on the exterior.\n4. **Scene Description**: The location appears to be near a stadium, possibly before or after an event, with a populated area and cloudy sky.\n5. **Transportation**: A bus is parked adjacent to the stadium.\n\nNo additional details or context relevant to the question about the match, goal scorer, or specific player numbers are visible in the image.",
-  "backend": "openai",
-  "model": "gpt-4o-mini"
-}
