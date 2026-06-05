@@ -85,6 +85,15 @@ figure img{max-width:100%; height:auto}
 .pull{text-align:center; font-style:italic; color:#3a414c; max-width:80%; margin:1.4rem auto 0; font-size:1.06rem}
 mark{background:#fff3bf; padding:0 3px; border-radius:3px}
 
+/* ---- contributions ---- */
+.contrib{max-width:80%; margin:0 auto; list-style:none; padding:0}
+.contrib li{position:relative; padding:.55rem 0 .55rem 2rem; font-size:1.05rem; border-bottom:1px solid var(--line)}
+.contrib li:last-child{border-bottom:none}
+.contrib li::before{content:"\f00c"; font-family:"Font Awesome 6 Free"; font-weight:900;
+  color:var(--accent); position:absolute; left:0; top:.7rem; font-size:.9rem}
+.contrib b{color:var(--heading); font-family:"Inter",sans-serif}
+@media(max-width:720px){.contrib{max-width:100%}}
+
 /* ---- tables ---- */
 .tbl-title{font-family:"Inter",sans-serif; font-weight:600; font-size:1.02rem; color:var(--heading);
   margin:1.8rem 0 .6rem; text-align:center}
@@ -187,6 +196,46 @@ footer a{color:var(--muted); text-decoration:underline}
       <p class="pull">For persistent-memory agents, robustness should be evaluated not only at
       retrieval, but also at the point where observations become persistent state.</p>
     </div>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- ===== contributions ===== -->
+<section class="section">
+  <div class="container">
+    <h2 class="title-3">Key Contributions</h2>
+    <ul class="contrib">
+      <li><b>Write-time admission gate.</b> A semantic guard classifies every incoming
+      observation (DATA / DIRECTIVE / METADATA) and blocks unsupported or injected content
+      at the memory boundary — before it can ever be stored.</li>
+      <li><b>Evidence → belief promotion.</b> Observations enter as transient <i>evidence</i>
+      and are promoted to durable <i>belief</i> only when sufficiently supported, independent,
+      and non-conflicting — with dependent multimodal signals (e.g. OCR + caption of the same
+      image) not counted as independent corroboration.</li>
+      <li><b>Provenance-aware retrieval.</b> A channel-trust floor, partition multiplier, and
+      conflict gate decide which retrieved memory is allowed to support downstream reasoning.</li>
+      <li><b>Two adversarial benchmarks.</b> <i>LoCoMo-Adv</i> (long-horizon multimodal memory
+      poisoning) and <i>MM-BrowseComp-Adv</i> (five-attack multimodal browsing suite) — released
+      to evaluate robustness at the write boundary, not only at retrieval.</li>
+    </ul>
+  </div>
+</section>
+
+<hr class="divider"/>
+
+<!-- ===== datasets ===== -->
+<section class="section">
+  <div class="container">
+    <h2 class="title-3">Adversarial Benchmarks</h2>
+    <figure>
+      <img src="assets/media/dataset_creation.png" alt="Construction pipeline for the LoCoMo-Adv and MM-BrowseComp-Adv adversarial benchmarks"/>
+      <figcaption>We extend two established benchmarks with adversarial memory-poisoning
+      attacks. <b>LoCoMo-Adv</b> injects unsupported content across long multimodal
+      conversations to test whether it hardens into persistent belief; <b>MM-BrowseComp-Adv</b>
+      adds a five-attack suite over multimodal browsing traces (browser, OCR, and vision-caption
+      channels). Both are built from frozen, reproducible pipelines checked into the repository.</figcaption>
+    </figure>
   </div>
 </section>
 
